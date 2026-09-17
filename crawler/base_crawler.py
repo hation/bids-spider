@@ -1,14 +1,19 @@
+import os
 import random
 from dataclasses import dataclass, asdict
 from datetime import datetime
 import time
 
+import html2text
 import pandas as pd
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 from utils.log import logger
 from utils.es import ESConnection
+
+OUTPUT_DIR = "output"
+EXCEL_CELL_LIMIT = 32767  # Excel 单格最大字符数，超过会被截断
 
 
 @dataclass
@@ -79,10 +84,24 @@ class BaseCrawler:
             logger.info(f"[{self.region}]Nothing to save.")
             return
         data = [asdict(tender) for tender in self.tenders.values()]
+        for record in data:
+            record['html'] = self._html_to_text(record.get('html', ''))
+            record['truncated'] = '是' if len(record['html']) > EXCEL_CELL_LIMIT else '否'
         file_name = str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_')
         file_name = f"{self.region}_{file_name}.xlsx"
-        logger.info(f"[{self.region}]Save tenders to {file_name}")
-        pd.DataFrame(data).to_excel(file_name)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        file_path = os.path.join(OUTPUT_DIR, file_name)
+        logger.info(f"[{self.region}]Save tenders to {file_path}")
+        pd.DataFrame(data).to_excel(file_path)
+
+    @staticmethod
+    def _html_to_text(html):
+        """HTML 源码转可读纯文本，用于 Excel 导出"""
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        h.ignore_images = True
+        h.body_width = 0
+        return h.handle(html or '')
 
     def save_tender_to_es(self, tender):
         logger.info(f"[{self.region}]Save {tender.title} tenders to Elasticsearch.")

@@ -1,4 +1,6 @@
 log
 tenderenv/
+.venv/
 .idea/
 __pycache__/
+output/

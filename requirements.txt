@@ -2,6 +2,7 @@ pandas
 playwright
 loguru
 openpyxl
+html2text
 elasticsearch<9.0.0
 baidu-aip
 pillow

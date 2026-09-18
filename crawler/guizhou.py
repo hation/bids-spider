@@ -74,19 +74,28 @@ class GuiZhou(BaseCrawler):
                 self._random_sleep(_max=3)
         logger.info(f"[{self.region}]crawl done, new {len(self.tenders)} tenders.")
 
-    def _get_detail(self, context, article_id):
-        try:
-            response = context.request.get(
-                self.detail_api,
-                params={'articleId': article_id, 'parentId': self.parent_id,
-                        'timestamp': int(time.time() * 1000)},
-                headers=self.headers,
-            )
-            data = response.json()
-            return ((data.get("result") or {}).get("data") or {}).get("content") or ''
-        except Exception as e:
-            logger.error(f"[{self.region}]parse detail failed {article_id}: {e}")
-            return ''
+    def _get_detail(self, context, article_id, retries=3):
+        """获取详情正文，对接口异常结构做容错并重试"""
+        for attempt in range(1, retries + 1):
+            try:
+                response = context.request.get(
+                    self.detail_api,
+                    params={'articleId': article_id, 'parentId': self.parent_id,
+                            'timestamp': int(time.time() * 1000)},
+                    headers=self.headers,
+                )
+                data = response.json()
+                result = data.get("result")
+                inner = result.get("data") if isinstance(result, dict) else None
+                content = inner.get("content") if isinstance(inner, dict) else None
+                if content:
+                    return content
+                logger.warning(f"[{self.region}]detail empty/abnormal (attempt {attempt}/{retries}): {article_id}")
+            except Exception as e:
+                logger.warning(f"[{self.region}]parse detail failed {article_id} (attempt {attempt}/{retries}): {e}")
+            if attempt < retries:
+                time.sleep(1)
+        return ''
 
     @staticmethod
     def _parse_date(epoch_millis):

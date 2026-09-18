@@ -45,9 +45,19 @@ class ShanDong(BaseCrawler):
             for href, tender in tenders.items():
                 if href in self.exists_urls:
                     continue
-                page.goto(href, wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_selector("div.site-content", timeout=30000)
-                tender.html = self.parse_detail(page)
+                try:
+                    page.goto(href, wait_until="domcontentloaded", timeout=60000)
+                    # SPA 详情页正文异步渲染，等待内容就绪后再抓取，避免拿到空壳
+                    page.wait_for_function(
+                        """() => {
+                            const el = document.querySelector('div.site-content');
+                            return el && el.innerHTML.trim().length > 0;
+                        }""",
+                        timeout=30000,
+                    )
+                    tender.html = self.parse_detail(page)
+                except Exception as e:
+                    logger.error(f"[{self.region}]parse detail failed {href}: {e}")
                 tender.crawl_date = self._get_crawl_date()
                 self.save_tender_to_es(tender)
                 self.tenders[href] = tender

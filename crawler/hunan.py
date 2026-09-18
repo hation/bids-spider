@@ -1,3 +1,4 @@
+import time
 import urllib.parse
 
 from crawler.base_crawler import BaseCrawler, Tender
@@ -89,21 +90,32 @@ class HuNan(BaseCrawler):
             tenders[href] = Tender(self.region, href, title, date_text)
         return tenders
 
-    def _fetch_detail(self, context, href):
-        """详情正文经 JSON 接口获取，避免异步渲染正文不稳定的问题"""
+    def _fetch_detail(self, context, href, retries=3):
+        """详情正文经 JSON 接口获取，对异常结构做容错并重试"""
         params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
         article_id = (params.get('articleId') or [''])[0]
         parent_id = (params.get('parentId') or [''])[0]
         if not article_id:
             return ''
         api_url = f"{self.detail_api}?articleId={urllib.parse.quote(article_id)}&parentId={parent_id}"
-        response = context.request.get(
-            api_url,
-            headers={'Referer': href, 'Accept': 'application/json, text/plain, */*'},
-        )
-        data = response.json()
-        detail = ((data.get('result') or {}).get('data') or {})
-        return detail.get('content') or ''
+        for attempt in range(1, retries + 1):
+            try:
+                response = context.request.get(
+                    api_url,
+                    headers={'Referer': href, 'Accept': 'application/json, text/plain, */*'},
+                )
+                data = response.json()
+                result = data.get('result') or {}
+                detail = result.get('data') if isinstance(result, dict) else None
+                content = detail.get('content') if isinstance(detail, dict) else None
+                if content:
+                    return content
+                logger.warning(f"[{self.region}]detail empty/abnormal (attempt {attempt}/{retries}): {href}")
+            except Exception as e:
+                logger.warning(f"[{self.region}]fetch detail failed {href} (attempt {attempt}/{retries}): {e}")
+            if attempt < retries:
+                time.sleep(1)
+        return ''
 
 
 if __name__ == '__main__':

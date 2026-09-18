@@ -24,7 +24,10 @@ class BeiJing(BaseCrawler):
         for url, tender in tenders.items():
             if url in self.exists_urls or url in self.tenders:
                 continue
-            tender.html = self._execute_by_new_page(context, url, self.parse_detail)
+            try:
+                tender.html = self._execute_by_new_page(context, url, self.parse_detail)
+            except Exception as e:
+                logger.error(f"[{self.region}]parse detail failed {url}: {e}")
             tender.crawl_date = self._get_crawl_date()
             self.tenders[url] = tender
             self._random_sleep(_max=30)
@@ -49,7 +52,6 @@ class BeiJing(BaseCrawler):
             tender = Tender(self.region, href_full, a_text, date_text)
             tenders[href_full] = tender
             logger.info(f"Found tender: {tender}")
-            self.tenders[href_full] = tender
         return tenders
 
     @staticmethod

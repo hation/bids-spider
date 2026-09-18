@@ -1,6 +1,17 @@
+# 运行日志
+logs/
 log
+
+# 虚拟环境
 tenderenv/
 .venv/
+
+# IDE / 系统
 .idea/
+.DS_Store
+
+# Python
 __pycache__/
+
+# 抓取产物
 output/

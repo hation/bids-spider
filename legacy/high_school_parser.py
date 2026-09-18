@@ -1,5 +1,5 @@
 import re
-from utils import *
+from parser import *
 
 keywords = ['招聘']
 driver = make_driver()

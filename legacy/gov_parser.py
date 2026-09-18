@@ -1,4 +1,4 @@
-from utils import Parser
+from parser import Parser
 
 
 class Bid:

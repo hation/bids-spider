@@ -124,3 +124,19 @@ class BaiduOCR:
         with open(filename, 'wb')as f:
             f.write(requests.get(url, verify=False).content)
         logger.info(f'download {url} to {filename} success')
+
+
+class DdddOCR:
+    """本地开源验证码识别（ddddocr），无需任何 API 凭据，适合 4 位数字/字母验证码。"""
+
+    def __init__(self):
+        import ddddocr
+        self._ocr = ddddocr.DdddOcr(show_ad=False)
+
+    def recognize_bytes(self, image_bytes: bytes) -> str:
+        """识别图片字节，返回验证码字符串（识别失败可能返回空/乱码）"""
+        try:
+            return self._ocr.classification(image_bytes) or ''
+        except Exception as e:
+            logger.error(f"ddddocr recognize failed: {e}")
+            return ''

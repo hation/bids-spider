@@ -44,6 +44,10 @@ CRAWLERS = {
     'ningxia': ('ningxia', 'NingXia'),
     'xinjiang': ('xinjiang', 'XinJiang'),
     'guangxi': ('guangxi', 'GuangXi'),
+    'hlj': ('hlj', 'HeiLongJiang'),
+    'gansu': ('gansu', 'GanSu'),
+    'shaanxi': ('shaanxi', 'ShaanXi'),
+    'henan': ('henan', 'HeNan'),
 }
 
 

@@ -11,3 +11,4 @@ chardet
 pytesseract
 opencv-python
 playwright-stealth
+ddddocr

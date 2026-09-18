@@ -8,14 +8,19 @@
 原理：运行时在内存中给 BaseCrawler 打补丁（覆盖 run 与 _random_sleep），
 不触碰任何现有文件；已入库的数据会按 href 自动跳过。
 """
+import glob
+import json
+import os
 import random
 import sys
 import time
+from datetime import datetime, timezone, timedelta
 
+import pandas as pd
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
-from crawler.base_crawler import BaseCrawler
+from crawler.base_crawler import BaseCrawler, _DateBoundaryReached
 
 # region 名称 -> (模块名, 类名)
 CRAWLERS = {
@@ -91,8 +96,152 @@ def run_region(region):
     crawler_class().run()
 
 
+CN_TZ = timezone(timedelta(hours=8))  # 北京时间
+
+
+def today_str():
+    return datetime.now(CN_TZ).strftime('%Y-%m-%d')
+
+
+def run_region_by_date(region, start_date, end_date, summary_path=None):
+    """单地区按日期抓取；可追加一行结果到 summary_path（JSONL，供并行批跑汇总）。"""
+    module_name, class_name = CRAWLERS[region]
+    module = __import__(f'crawler.{module_name}', fromlist=[class_name])
+    crawler = getattr(module, class_name)()
+    kept = 0
+    no_date = 0
+    try:
+        crawler.run_by_date(start_date, end_date)
+        kept = len(crawler.tenders)
+        no_date = getattr(crawler, '_date_no_date', 0)
+        status = 'ok' if kept > 0 else ('no_match' if no_date == 0 else 'no_date')
+    except Exception as e:
+        status = f'error: {e}'
+    record = {'region': region, 'status': status, 'kept': kept, 'no_date': no_date}
+    if summary_path:
+        with open(summary_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+    print(f'[{region}] {status}, kept={kept}, no_date={no_date}')
+    return record
+
+
+def build_summary(start_date, end_date, records, merged_df):
+    """生成摘要报告 output/summary_<date>.md"""
+    range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
+    lines = [
+        f'# 按日期抓取摘要 {start_date} ~ {end_date}',
+        '',
+        f'共 {len(records)} 个地区参与，成功 {sum(1 for r in records if r["status"] == "ok")} 个。',
+        '',
+        '| 地区 | 状态 | 新增条数 |',
+        '|---|---|---|',
+    ]
+    for r in records:
+        lines.append(f'| {r["region"]} | {r["status"]} | {r["kept"]} |')
+    lines.append('')
+    lines.append('## 各条公告标题（截取）')
+    if merged_df is not None and not merged_df.empty:
+        for _, row in merged_df.iterrows():
+            title = str(row['title'])[:60]
+            lines.append(f'- [{row["region"]}] {title} ({row["release_date"]})')
+    else:
+        lines.append('- （无命中）')
+    md_path = f'output/summary_{range_key}.md'
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+    print(f'summary saved: {md_path}')
+
+
+def merge_region_excels(start_date, regions):
+    """合并各地区 date_<start>_<region>.xlsx 为汇总 Excel"""
+    dfs = []
+    for region in regions:
+        for path in glob.glob(f'output/date_{start_date}_{region}.xlsx'):
+            dfs.append(pd.read_excel(path))
+    if not dfs:
+        return None
+    return pd.concat(dfs, ignore_index=True)
+
+
+def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
+    """顺序跑全部/指定地区按日期抓取，然后生成汇总 Excel + 摘要报告。"""
+    end_date = end_date or start_date
+    regions = regions or list(CRAWLERS)
+    records = []
+    for region in regions:
+        records.append(run_region_by_date(region, start_date, end_date, summary_path))
+    merged = merge_region_excels(start_date, regions)
+    if merged is not None:
+        range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
+        merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
+        print(f'merged excel saved: output/date_{range_key}.xlsx')
+    build_summary(start_date, end_date, records, merged)
+
+
+def summarize_command(date_key, end_date=None):
+    """读取 output/date_run_<date>.jsonl 与各地区 Excel，生成汇总输出。"""
+    start_date = date_key
+    if end_date is None:
+        end_date = start_date
+    jsonl_path = f'output/date_run_{start_date}.jsonl'
+    records = []
+    if os.path.exists(jsonl_path):
+        with open(jsonl_path, encoding='utf-8') as f:
+            for line in f:
+                records.append(json.loads(line))
+    if not records:
+        print(f'no records in {jsonl_path}')
+        return
+    regions = [r['region'] for r in records]
+    merged = merge_region_excels(start_date, regions)
+    if merged is not None:
+        range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
+        merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
+    build_summary(start_date, end_date, records, merged)
+
+
 def main():
-    arg = sys.argv[1] if len(sys.argv) > 1 else 'tianjin'
+    args = sys.argv[1:]
+    cmd = args[0] if args else 'tianjin'
+
+    # 日期模式：today / by_date <start> [end] [--regions a,b] [--summary path]
+    if cmd in ('today', 'by_date'):
+        if cmd == 'today':
+            start = today_str()
+            end = None
+            rest = args[1:]
+        else:
+            if len(args) < 2:
+                print('用法: python fast_run.py by_date <YYYY-MM-DD> [YYYY-MM-DD] [--regions a,b] [--summary path]')
+                sys.exit(1)
+            start = args[1]
+            end = args[2] if len(args) > 2 and not args[2].startswith('--') else None
+            rest = args[2:] if end else args[1:]
+        regions = None
+        summary_path = None
+        i = 0
+        while i < len(rest):
+            if rest[i] == '--regions' and i + 1 < len(rest):
+                regions = [r.strip() for r in rest[i + 1].split(',') if r.strip()]
+                i += 2
+            elif rest[i] == '--summary' and i + 1 < len(rest):
+                summary_path = rest[i + 1]
+                i += 2
+            else:
+                i += 1
+        run_date_mode(start, end, regions=regions, summary_path=summary_path)
+        return
+
+    if cmd == 'summarize':
+        if len(args) < 2:
+            print('用法: python fast_run.py summarize <YYYY-MM-DD> [end]')
+            sys.exit(1)
+        end = args[2] if len(args) > 2 else None
+        summarize_command(args[1], end)
+        return
+
+    # 原有模式：all / <region>
+    arg = args[0]
     if arg == 'all':
         for region in CRAWLERS:
             print(f'\n===== 开始爬取 {region} =====')

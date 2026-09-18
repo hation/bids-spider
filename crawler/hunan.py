@@ -91,10 +91,20 @@ class HuNan(BaseCrawler):
         return tenders
 
     def _fetch_detail(self, context, href, retries=3):
-        """详情正文经 JSON 接口获取，对异常结构做容错并重试"""
-        params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-        article_id = (params.get('articleId') or [''])[0]
-        parent_id = (params.get('parentId') or [''])[0]
+        """详情正文经 JSON 接口获取，对异常结构做容错并重试
+
+        注意：articleId 是 base64 风格字符串，可能含 + / = 字符，
+        必须从原始 URL 中按 & 拆取（parse_qs 会把 + 解码为空格导致查询失败）。
+        """
+        query = urllib.parse.urlparse(href).query
+        article_id = ''
+        parent_id = ''
+        for kv in query.split('&'):
+            k, _, v = kv.partition('=')
+            if k == 'articleId':
+                article_id = v
+            elif k == 'parentId':
+                parent_id = v
         if not article_id:
             return ''
         api_url = f"{self.detail_api}?articleId={urllib.parse.quote(article_id)}&parentId={parent_id}"

@@ -13,6 +13,15 @@ class NeiMengGu(BaseCrawler):
                         '&platformCode=&regionCode=&startTime=&endTime='
                         '&transactionTypeName=%E6%94%BF%E5%BA%9C%E9%87%87%E8%B4%AD&industriesTypeName=')
         self.headers = {}
+        self.date_filter = 'url_param'
+
+    def build_list_url(self, page_num):
+        """原生日期参数：searchPublishResource 接口支持 startTime/endTime 过滤。"""
+        return (
+            self.api_url.replace('pageNum=1', f'pageNum={page_num}')
+            .replace('startTime=', f'startTime={self._date_start}')
+            .replace('endTime=', f'endTime={self._date_end}')
+        )
 
     def _crawl(self, context):
         page = context.new_page()

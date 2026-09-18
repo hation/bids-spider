@@ -16,6 +16,10 @@ OUTPUT_DIR = "output"
 EXCEL_CELL_LIMIT = 32767  # Excel 单格最大字符数，超过会被截断
 
 
+class _DateBoundaryReached(Exception):
+    """扫描模式下已翻过目标日期范围（列表按日期倒序），提前停止翻页。"""
+
+
 @dataclass
 class Tender:
     region: str
@@ -87,8 +91,10 @@ class BaseCrawler:
         for record in data:
             record['html'] = self._html_to_text(record.get('html', ''))
             record['truncated'] = '是' if len(record['html']) > EXCEL_CELL_LIMIT else '否'
-        file_name = str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_')
-        file_name = f"{self.region}_{file_name}.xlsx"
+        file_name = getattr(self, '_excel_name', None) or (
+            f"{self.region}_"
+            f"{str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_')}.xlsx"
+        )
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         file_path = os.path.join(OUTPUT_DIR, file_name)
         logger.info(f"[{self.region}]Save tenders to {file_path}")
@@ -133,6 +139,71 @@ class BaseCrawler:
         }
         data = self.es_conn.search_data(query_body) or set()
         return set(i['_id'] for i in data)
+
+    def run_by_date(self, start_date, end_date=None):
+        """按日期抓取：只保留 release_date 落在 [start_date, end_date] 的公告。
+
+        - 声明了 date_filter='url_param' 的站点：列表请求直接带日期参数，精准定位。
+        - 未声明（扫描模式）：复用 _crawl 翻页，遇到早于 start_date 的公告提前停止。
+        """
+        self._date_start = start_date
+        self._date_end = end_date or start_date
+        self._date_no_date = 0
+        self._excel_name = f"date_{start_date}_{self.region}.xlsx"
+        self.exists_urls = self.get_exists_url_from_es()
+        try:
+            with Stealth().use_sync(sync_playwright()) as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                    ]
+                )
+                context = browser.new_context()
+                self._crawl_by_date(context)
+        except _DateBoundaryReached:
+            logger.info(f"[{self.region}]已翻过目标日期范围，提前停止翻页")
+        finally:
+            self._filter_tenders_by_date()
+            self.save_tenders_to_es()
+            self.save_tenders_to_excel()
+
+    def _crawl_by_date(self, context):
+        """日期模式入口：安装日期过滤守卫后复用各爬虫的 _crawl。"""
+        if getattr(self, 'date_filter', None) == 'url_param' and hasattr(self, 'build_list_url'):
+            # 原生日期参数站点：让列表请求直接带上日期范围（保留 pageNum=1 供 _crawl 分页替换）
+            base_url = self.build_list_url(1)
+            for attr in ('api_url', 'list_url'):
+                if hasattr(self, attr):
+                    setattr(self, attr, base_url)
+        else:
+            # 扫描模式：限制页数兜底，避免无谓翻页
+            self.max_pages = min(getattr(self, 'max_pages', 50), 8)
+
+        orig_save = self.save_tender_to_es
+
+        def guarded_save(tender):
+            d = (tender.release_date or '').strip()[:10]
+            if not d:
+                self._date_no_date += 1
+                return
+            if d < self._date_start:  # 列表按日期倒序，遇到更早的即翻过了目标日期
+                raise _DateBoundaryReached()
+            if d <= self._date_end:
+                orig_save(tender)
+
+        self.save_tender_to_es = guarded_save
+        self._crawl(context)
+        self.save_tender_to_es = orig_save
+
+    def _filter_tenders_by_date(self):
+        """严格过滤兜底：只保留日期范围内的公告（批量入库/Excel 导出前调用）。"""
+        self.tenders = {
+            href: t for href, t in self.tenders.items()
+            if self._date_start <= (t.release_date or '').strip()[:10] <= self._date_end
+        }
 
 
 if __name__ == '__main__':

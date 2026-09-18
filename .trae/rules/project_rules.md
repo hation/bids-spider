@@ -79,11 +79,12 @@ echo "ALL REGIONS TODAY DONE"
 
 ## 5. 提交推送规范
 
-- 仓库有两个 remote：
-  - `fork` → `https://github.com/hation/bids-spider.git`（**用户的 fork，推送目标**）
-  - `origin` → `https://github.com/broholens/bids-spider.git`（原仓库，**不要推送**）
+- 仓库两个 remote 均指向用户自己的 GitHub：
+  - `fork` → `https://github.com/hation/bids-spider.git`
+  - `origin` → `https://github.com/hation/bids-spider.git`（与 fork 相同，均已改为用户地址）
 - 提交：先 `git status` / `git diff` 确认改动，按逻辑拆 commit（如 `fix(crawler):` / `feat(fast_run):` / `feat(analyze):`），每条含中文说明。
-- 推送：**一律 `git push fork master`**。`git push origin` 会因权限被拒（403），属预期，不是错误。
+- 推送：`git push origin master` 与 `git push fork master` 等价，均可推送到用户 GitHub。
+- 若本机 git 配置了 socks5 代理（`http.proxy`/`https.proxy`）且代理未运行导致推送失败（报 127.0.0.1 连接失败），可用 `git -c http.proxy= -c https.proxy= push <remote> master` 临时直连推送。
 - 提交前确认 `.env`、密钥等不入库；ES 凭据已在 `utils/es.py` 硬编码（本地服务），保持现有模式即可。
 
 ## 6. 日常维护

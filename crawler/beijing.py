@@ -1,16 +1,18 @@
 from datetime import datetime
 
-from base_crawler import Tender, BaseCrawler
+from crawler.base_crawler import Tender, BaseCrawler
 from utils.log import logger
 
 
 class BeiJing(BaseCrawler):
-    def __init__(self):
+    def __init__(self, max_pages=5):
         super().__init__("beijing", max_page_num=140)
+        self.max_pages = max_pages
         self.page_url = "http://www.ccgp-beijing.gov.cn/xxgg/sjxxgg/A002004001index_{}.htm"
 
     def _crawl(self, context):
-        self._crawl_one_page(context, self.page_url.format(1))
+        for i in range(1, self.max_pages + 1):
+            self._crawl_one_page(context, self.page_url.format(i))
 
     def _crawl_history(self, context):
         for i in range(1, self.max_page_num + 1):
@@ -20,6 +22,8 @@ class BeiJing(BaseCrawler):
         logger.info(f"start to crawl: {page_url}")
         tenders = self._execute_by_new_page(context, page_url, self.get_one_page_titles)
         for url, tender in tenders.items():
+            if url in self.exists_urls or url in self.tenders:
+                continue
             tender.html = self._execute_by_new_page(context, url, self.parse_detail)
             tender.crawl_date = self._get_crawl_date()
             self.tenders[url] = tender

@@ -238,8 +238,14 @@ class ESConnection:
 
         try:
             resp = helpers.bulk(client, actions, chunk_size=chunk_size, raise_on_error=False, stats_only=False)
-            logger.info(f"save {len(actions)} tenders to {target_index} successfully.")
-            return {"took": resp[1], "success_count": resp[0], "failed_count": len(actions) - resp[0]}
+            success_count, errors = resp[0], resp[1]
+            failed_count = len(actions) - success_count
+            if errors:
+                logger.error(f"bulk save tenders failed {failed_count}/{len(actions)}: "
+                             f"{errors[0] if isinstance(errors, list) and errors else errors}")
+            else:
+                logger.info(f"save {len(actions)} tenders to {target_index} successfully.")
+            return {"took": resp[1], "success_count": success_count, "failed_count": failed_count}
         except Exception as e:
             logger.error(f"bulk save tenders failed: {e}")
             return None

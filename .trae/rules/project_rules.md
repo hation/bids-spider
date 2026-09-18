@@ -49,6 +49,14 @@ echo "ALL REGIONS TODAY DONE"
 
 该命令读取 jsonl，合并各地区 Excel 生成 `output/date_<date>.xlsx`，并**自动调用 `analyze_today.py` 生成需求洞察报告**（无需手动触发）。
 
+### 2.5 查看历史某天商机（查库，不爬网站）
+
+```bash
+.venv/bin/python fast_run.py db_date 2026-09-17
+```
+
+该命令直接从 Elasticsearch 按 `release_date` 查询历史某天的全部公告（scroll 拉全量），导出统一 Excel 并自动生成洞察报告，**不访问任何网站**。与 `by_date`（重新爬取）的区别：`db_date` 只读库，适合回溯已入库的历史数据。
+
 ## 3. 需求洞察报告（analyze_today.py）
 
 - 独立脚本：`python analyze_today.py <date>`（省略日期默认今天）。

@@ -212,6 +212,68 @@ def summarize_command(date_key, end_date=None):
         print(f'[summarize] 需求洞察报告生成失败: {e}')
 
 
+def query_date_from_es(date_key):
+    """从 Elasticsearch 按 release_date 查询某天的全部公告，导出统一格式 Excel 并生成洞察报告。
+
+    与 by_date（重新爬网站）不同：本命令只查库，不访问任何网站。
+    产物：output/date_<date>.xlsx + output/需求洞察报告_<date>.md
+    """
+    from utils.es import ESConnection
+    es = ESConnection()
+    client = es._client()
+    if not client:
+        print(f'[db_date] ES 连接失败，无法查询')
+        return 0
+    # 用 scroll 拉取全部命中（release_date 为 keyword，term 精确匹配）
+    query = {'query': {'term': {'release_date': date_key}}, 'sort': ['_doc']}
+    records = []
+    try:
+        resp = client.search(index='tenders', body=query, scroll='2m', size=1000, _source=True)
+        sid = resp['_scroll_id']
+        hits = resp['hits']['hits']
+        records.extend(hits)
+        while hits:
+            resp = client.scroll(scroll_id=sid, scroll='2m')
+            hits = resp['hits']['hits']
+            records.extend(hits)
+        try:
+            client.clear_scroll(scroll_id=sid)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f'[db_date] 查询失败: {e}')
+        return 0
+    total = resp.get('hits', {}).get('total', {}).get('value', len(records))
+    if not records:
+        print(f'[db_date] {date_key} 在 ES 中无数据')
+        return 0
+    rows = []
+    for h in records:
+        src = h.get('_source', {})
+        html = src.get('html', '') or ''
+        rows.append({
+            'region': src.get('region', ''),
+            'href': src.get('href', ''),
+            'title': src.get('title', ''),
+            'release_date': src.get('release_date', ''),
+            'html': html,
+            'crawl_date': src.get('crawl_date', ''),
+            'truncated': '是' if len(str(html)) > 32767 else '否',
+        })
+    df = pd.DataFrame(rows)
+    os.makedirs('output', exist_ok=True)
+    out = os.path.join('output', f'date_{date_key}.xlsx')
+    df.to_excel(out, index=False)
+    print(f'[db_date] {date_key} ES 命中 {total} 条，导出 {out}')
+    # 自动生成需求洞察报告
+    try:
+        from analyze_today import run_analysis
+        run_analysis(date_key)
+    except Exception as e:
+        print(f'[db_date] 需求洞察报告生成失败: {e}')
+    return len(rows)
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args else 'tianjin'
@@ -242,6 +304,14 @@ def main():
             else:
                 i += 1
         run_date_mode(start, end, regions=regions, summary_path=summary_path)
+        return
+
+    if cmd == 'db_date':
+        # 从 ES 数据库查询历史某天的商机（不爬网站）
+        if len(args) < 2:
+            print('用法: python fast_run.py db_date <YYYY-MM-DD>')
+            sys.exit(1)
+        query_date_from_es(args[1])
         return
 
     if cmd == 'summarize':

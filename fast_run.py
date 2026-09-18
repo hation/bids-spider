@@ -152,6 +152,20 @@ def build_summary(start_date, end_date, records, merged_df):
     print(f'summary saved: {md_path}')
 
 
+# Excel 导出统一使用中文列名（内部字段保持英文）
+CN_EXPORT_COLS = {
+    'region': '地区', 'href': '公告链接', 'title': '商机标题',
+    'release_date': '发布日期', 'crawl_date': '抓取日期',
+    'html': '商机详情', 'truncated': '详情截断',
+}
+
+
+def export_to_excel(df, path):
+    """按中文列名导出 DataFrame（只映射存在的列）"""
+    df = df.rename(columns={c: e for c, e in CN_EXPORT_COLS.items() if c in df.columns})
+    df.to_excel(path, index=False)
+
+
 def merge_region_excels(start_date, regions):
     """合并各地区 date_<start>_<region>.xlsx 为汇总 Excel"""
     dfs = []
@@ -173,7 +187,7 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
     merged = merge_region_excels(start_date, regions)
     if merged is not None:
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
-        merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
+        export_to_excel(merged, f'output/date_{range_key}.xlsx')
         print(f'merged excel saved: output/date_{range_key}.xlsx')
     build_summary(start_date, end_date, records, merged)
     # 自动生成需求洞察报告
@@ -202,7 +216,7 @@ def summarize_command(date_key, end_date=None):
     merged = merge_region_excels(start_date, regions)
     if merged is not None:
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
-        merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
+        export_to_excel(merged, f'output/date_{range_key}.xlsx')
     build_summary(start_date, end_date, records, merged)
     # 自动生成需求洞察报告
     try:
@@ -263,7 +277,7 @@ def query_date_from_es(date_key):
     df = pd.DataFrame(rows)
     os.makedirs('output', exist_ok=True)
     out = os.path.join('output', f'date_{date_key}.xlsx')
-    df.to_excel(out, index=False)
+    export_to_excel(df, out)
     print(f'[db_date] {date_key} ES 命中 {total} 条，导出 {out}')
     # 自动生成需求洞察报告
     try:

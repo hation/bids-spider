@@ -136,6 +136,9 @@ def main():
 
     es = Elasticsearch(ES_URL, basic_auth=ES_AUTH, request_timeout=30)
     df = pd.read_excel(excel)
+    # 兼容中文/英文列名（导出统一使用中文列名）
+    df = df.rename(columns={'商机详情': 'html', '公告链接': 'href', '地区': 'region',
+                            '商机标题': 'title', '发布日期': 'release_date', '抓取日期': 'crawl_date'})
     df['html'] = df['html'].fillna('').astype(str)
     idx_by_href = {str(r['href']): i for i, r in df.iterrows()}
 

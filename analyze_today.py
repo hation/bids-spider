@@ -148,12 +148,21 @@ def classify_agent(title, html):
 
 # ---------------------------------------------------------------- 数据加载与特征
 
+# Excel 中文列名 <-> 内部字段名 映射（导出统一使用中文列名）
+CN_COLS = {
+    '地区': 'region', '公告链接': 'href', '商机标题': 'title',
+    '发布日期': 'release_date', '抓取日期': 'crawl_date',
+    '商机详情': 'html', '详情截断': 'truncated',
+}
+
 def load_and_featurize(date_key):
     xlsx = os.path.join(OUTPUT_DIR, f"date_{date_key}.xlsx")
     if not os.path.exists(xlsx):
         print(f"[analyze] 找不到数据文件 {xlsx}，跳过分析")
         return None
     df = pd.read_excel(xlsx)
+    # 兼容中文/英文列名（旧文件可能是英文列名）
+    df = df.rename(columns={c: e for c, e in CN_COLS.items() if c in df.columns})
     df['type'] = df['title'].apply(classify_type)
     res = df['html'].apply(extract_money)
     df['amt_unit'], df['amount'] = zip(*res)

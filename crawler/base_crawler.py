@@ -15,6 +15,13 @@ from utils.es import ESConnection
 OUTPUT_DIR = "output"
 EXCEL_CELL_LIMIT = 32767  # Excel 单格最大字符数，超过会被截断
 
+# Excel 导出统一使用中文列名（内部字段保持英文）
+CN_EXPORT_COLS = {
+    'region': '地区', 'href': '公告链接', 'title': '商机标题',
+    'release_date': '发布日期', 'crawl_date': '抓取日期',
+    'html': '商机详情', 'truncated': '详情截断',
+}
+
 
 class _DateBoundaryReached(Exception):
     """扫描模式下已翻过目标日期范围（列表按日期倒序），提前停止翻页。"""
@@ -98,7 +105,8 @@ class BaseCrawler:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         file_path = os.path.join(OUTPUT_DIR, file_name)
         logger.info(f"[{self.region}]Save tenders to {file_path}")
-        pd.DataFrame(data).to_excel(file_path)
+        df = pd.DataFrame(data).rename(columns={c: e for c, e in CN_EXPORT_COLS.items() if c in data[0]})
+        df.to_excel(file_path)
 
     @staticmethod
     def _html_to_text(html):

@@ -5,7 +5,7 @@ from utils.log import logger
 
 
 class BeiJing(BaseCrawler):
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__("beijing", max_page_num=140)
         self.max_pages = max_pages
         self.page_url = "http://www.ccgp-beijing.gov.cn/xxgg/sjxxgg/A002004001index_{}.htm"

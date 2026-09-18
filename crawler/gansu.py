@@ -4,7 +4,7 @@ from crawler.hlj import HeiLongJiang
 class GanSu(HeiLongJiang):
     """甘肃省采购网（maincms-web 平台，验证码流程同黑龙江）。"""
 
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__(max_pages=max_pages)
         self.region = 'gansu'
         self.list_url = 'https://www.ccgp-gansu.gov.cn/maincms-web/massageListPageGs'

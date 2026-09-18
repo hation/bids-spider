@@ -13,10 +13,10 @@ class HeNan(BaseCrawler):
     通过结果页分页控件翻页。
     """
 
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__('henan', max_page_num=None)
         self.max_pages = max_pages
-        self.max_items = 100
+        self.max_items = 500
         self.list_url = 'http://www.ccgp-henan.gov.cn/henan/ggcx'
         self.base_url = 'http://www.ccgp-henan.gov.cn'
         self.ocr = DdddOCR()

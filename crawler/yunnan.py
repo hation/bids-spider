@@ -16,7 +16,7 @@ class YunNan(BaseCrawler):
 
     def __init__(self):
         super().__init__('yunnan', max_page_num=None)
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
         self.index_url = 'http://www.yngp.com/page/procurement/procurementList.html'
         self.api_url = 'http://www.yngp.com/api/procurement/Procurement.gghtMoreList.svc?captchaCheckFlag=0&p=1'
 

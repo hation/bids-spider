@@ -4,7 +4,7 @@ format_ = '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</l
             '| <magenta>{process}</magenta>:<yellow>{thread}</yellow> ' \
             '| <cyan>{name}</cyan>:<cyan>{function}</cyan>:<yellow>{line}</yellow> - <level>{message}</level>'
 logger.add(
-    sink="log",
+    sink="logs/runtime.log",
     level="INFO",
     enqueue=True,
     rotation="1 weeks",

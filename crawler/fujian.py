@@ -13,7 +13,7 @@ class FuJian(BaseCrawler):
     def __init__(self):
         super().__init__('fujian', max_page_num=None)
         self.index_url = 'https://ggzyfw.fj.gov.cn/business/list'
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
 
     def _crawl(self, context):
         page = context.new_page()

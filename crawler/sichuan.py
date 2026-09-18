@@ -7,7 +7,7 @@ from utils.log import logger
 class SiChuan(BaseCrawler):
     def __init__(self):
         super().__init__('sichuan')
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
         self.list_url = 'https://ggzyjy.sc.gov.cn/jyxx/transactionInfo.html'
         self.api_url = 'https://ggzyjy.sc.gov.cn/inteligentsearch/rest/esinteligentsearch/getFullTextDataNew'
         self.base_url = 'https://ggzyjy.sc.gov.cn'

@@ -5,7 +5,7 @@ from utils.log import logger
 
 
 class HeBei(BaseCrawler):
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__('hebei', max_page_num=None)
         self.max_pages = max_pages
         self.index_url = 'https://szj.hebei.gov.cn/hbggfwpt/jydt/salesPlat.html'

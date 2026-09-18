@@ -8,7 +8,7 @@ from utils.log import logger
 class GuangDong(BaseCrawler):
     def __init__(self):
         super().__init__('guangdong')
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
         self.list_url = 'https://gdgpo.czt.gd.gov.cn/maincms-web/noticeInformationGd'
         self.list_api_key = 'gpcms/rest/web/v2/info/selectInfoForIndex'
         self.detail_url = 'https://gdgpo.czt.gd.gov.cn/maincms-web/noticeGd?type=notice&id={}'

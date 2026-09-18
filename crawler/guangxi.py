@@ -17,7 +17,7 @@ class GuangXi(BaseCrawler):
 
     def __init__(self):
         super().__init__('guangxi', max_page_num=None)
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
         self.index_url = 'https://zfcg.gxzf.gov.cn/site/category?parentId=66485&childrenCode=ZcyAnnouncement'
         self.list_url = 'https://zfcg.gxzf.gov.cn/portal/category'
         self.detail_url = 'https://zfcg.gxzf.gov.cn/portal/detail'

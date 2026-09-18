@@ -14,10 +14,10 @@ class HeiLongJiang(BaseCrawler):
     随后直连接口翻页（currPage）抓取多页。
     """
 
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__('hlj', max_page_num=None)
         self.max_pages = max_pages
-        self.max_items = 100
+        self.max_items = 500
         self.list_url = 'https://hljcg.hlj.gov.cn/maincms-web/massageListPageHlj'
         self.verify_api = 'https://hljcg.hlj.gov.cn/gpcms/rest/web/v2/index/getVerify'
         self.list_api = 'https://hljcg.hlj.gov.cn/gpcms/rest/web/v2/info/selectInfoForIndex'

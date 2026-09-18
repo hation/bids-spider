@@ -8,7 +8,7 @@ class NingXia(BaseCrawler):
     """宁夏回族自治区公共资源交易网：HTML 列表页（tr.com-table-bd-row），正文容器 div.particulars-article。
 
     分页：#pager 分页组件（a[data-page-index]，0 起），点击"下页 >" JS 异步
-    加载。默认抓取前 5 页（或累计 100 条，取先到者）。
+    加载。默认抓取前 50 页（或累计 500 条，取先到者）。
     注意：站点接入中国电信网站安全防护（WAF），高频请求可能被 405 拦截，需
     Stealth 伪装 + 控制抓取频率。
     """
@@ -16,8 +16,8 @@ class NingXia(BaseCrawler):
     def __init__(self):
         super().__init__('ningxia', max_page_num=None)
         self.index_url = 'https://ggzyjy.fzggw.nx.gov.cn/dzjy/001001/trade_infomation.html'
-        self.max_pages = 5  # 最多抓取页数
-        self.max_items = 100  # 最多抓取条数（与 max_pages 取先到者）
+        self.max_pages = 50  # 最多抓取页数
+        self.max_items = 500  # 最多抓取条数（与 max_pages 取先到者）
 
     def _crawl(self, context):
         page = context.new_page()

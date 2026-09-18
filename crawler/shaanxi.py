@@ -14,10 +14,10 @@ class ShaanXi(BaseCrawler):
     随后直连接口翻页（currPage）抓取多页；详情页取 noticeDetailUrl。
     """
 
-    def __init__(self, max_pages=5):
+    def __init__(self, max_pages=50):
         super().__init__('shaanxi', max_page_num=None)
         self.max_pages = max_pages
-        self.max_items = 100
+        self.max_items = 500
         self.list_url = 'https://www.ccgp-shaanxi.gov.cn/cms-sx/site/shanxi/xxgg/index.html?result=result'
         self.list_api = 'https://www.ccgp-shaanxi.gov.cn/freecms/rest/v1/notice/selectInfoMoreChannel.do'
         self.base_url = 'https://www.ccgp-shaanxi.gov.cn'

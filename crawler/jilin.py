@@ -12,8 +12,8 @@ class JiLin(BaseCrawler):
     def __init__(self):
         super().__init__('jilin', max_page_num=None)
         self.page_url = 'http://www.ggzyzx.jl.gov.cn/jyxx/zfcg/'
-        self.max_pages = 5  # 最多抓取页数
-        self.max_items = 100  # 最多抓取条数（与 max_pages 取先到者）
+        self.max_pages = 50  # 最多抓取页数
+        self.max_items = 500  # 最多抓取条数（与 max_pages 取先到者）
 
     def _crawl(self, context):
         page = context.new_page()

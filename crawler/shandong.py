@@ -9,7 +9,7 @@ class ShanDong(BaseCrawler):
 
     def __init__(self):
         super().__init__('shandong')
-        self.max_pages = 5  # 默认抓取前 5 页（或累计 100 条，取先到者）
+        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
         self.index_url = 'http://www.ccgp-shandong.gov.cn/#/projectInformation/0'
         self.api_url = 'https://www.ccgp-shandong.gov.cn:8087/api/website/site/getListByCode'
         self.headers = {

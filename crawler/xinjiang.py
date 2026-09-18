@@ -12,15 +12,15 @@ class XinJiang(BaseCrawler):
 
     分页：#pager 分页组件（a[data-page-index]，0 起），页码与"下一页"（span.next
     图标）共享 data-page-index，点击页码链接（DOM 顺序靠前）JS 异步加载。
-    默认抓取前 5 页（或累计 100 条，取先到者）。
+    默认抓取前 50 页（或累计 500 条，取先到者）。
     """
 
     def __init__(self):
         super().__init__('xinjiang', max_page_num=None)
         self.index_url = 'https://ggzy.xinjiang.gov.cn/xinjiangggzy_new/jyxx/trade_info.html'
         self.date_pattern = re.compile(r'/(20\d{6})/')
-        self.max_pages = 5  # 最多抓取页数
-        self.max_items = 100  # 最多抓取条数（与 max_pages 取先到者）
+        self.max_pages = 50  # 最多抓取页数
+        self.max_items = 500  # 最多抓取条数（与 max_pages 取先到者）
 
     def _crawl(self, context):
         page = context.new_page()

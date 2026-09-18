@@ -164,7 +164,7 @@ def merge_region_excels(start_date, regions):
 
 
 def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
-    """顺序跑全部/指定地区按日期抓取，然后生成汇总 Excel + 摘要报告。"""
+    """顺序跑全部/指定地区按日期抓取，然后生成汇总 Excel + 摘要报告 + 需求洞察报告。"""
     end_date = end_date or start_date
     regions = regions or list(CRAWLERS)
     records = []
@@ -176,10 +176,16 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
         merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
         print(f'merged excel saved: output/date_{range_key}.xlsx')
     build_summary(start_date, end_date, records, merged)
+    # 自动生成需求洞察报告
+    try:
+        from analyze_today import run_analysis
+        run_analysis(start_date)
+    except Exception as e:
+        print(f'[run_date_mode] 需求洞察报告生成失败: {e}')
 
 
 def summarize_command(date_key, end_date=None):
-    """读取 output/date_run_<date>.jsonl 与各地区 Excel，生成汇总输出。"""
+    """读取 output/date_run_<date>.jsonl 与各地区 Excel，生成汇总输出，并自动生成需求洞察报告。"""
     start_date = date_key
     if end_date is None:
         end_date = start_date
@@ -198,6 +204,12 @@ def summarize_command(date_key, end_date=None):
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
         merged.to_excel(f'output/date_{range_key}.xlsx', index=False)
     build_summary(start_date, end_date, records, merged)
+    # 自动生成需求洞察报告
+    try:
+        from analyze_today import run_analysis
+        run_analysis(start_date)
+    except Exception as e:
+        print(f'[summarize] 需求洞察报告生成失败: {e}')
 
 
 def main():

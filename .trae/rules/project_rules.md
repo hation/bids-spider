@@ -57,6 +57,13 @@ echo "ALL REGIONS TODAY DONE"
 
 该命令直接从 Elasticsearch 按 `release_date` 查询历史某天的全部公告（scroll 拉全量），导出统一 Excel 并自动生成洞察报告，**不访问任何网站**。与 `by_date`（重新爬取）的区别：`db_date` 只读库，适合回溯已入库的历史数据。
 
+| 命令 | 行为 | 适用场景 |
+|---|---|---|
+| `by_date <date>` | 重新爬网站该日公告 | 补抓缺失数据 |
+| `db_date <date>` | 从 ES 查库该日公告 | 快速看历史，不碰网站 |
+
+注意：`db_date` 只能查到**已入库**的数据，若某天从未运行过抓取，库里无该日数据会提示 `ES 中无数据`。
+
 ## 3. 需求洞察报告（analyze_today.py）
 
 - 独立脚本：`python analyze_today.py <date>`（省略日期默认今天）。

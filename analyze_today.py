@@ -163,12 +163,16 @@ def load_and_featurize(date_key):
     df = pd.read_excel(xlsx)
     # 兼容中文/英文列名（旧文件可能是英文列名）
     df = df.rename(columns={c: e for c, e in CN_COLS.items() if c in df.columns})
+    # 关键字段缺失补空，避免 NaN 混入文本拼接
+    for col in ('title', 'html', 'region', 'release_date'):
+        if col in df.columns:
+            df[col] = df[col].fillna('')
     df['type'] = df['title'].apply(classify_type)
     res = df['html'].apply(extract_money)
     df['amt_unit'], df['amount'] = zip(*res)
-    df['amount_wan'] = df.apply(
+    df['amount_wan'] = pd.to_numeric(df.apply(
         lambda r: r['amount'] if r['amt_unit'] == '万元'
-        else (r['amount'] / 10000 if r['amt_unit'] == '元' else None), axis=1)
+        else (r['amount'] / 10000 if r['amt_unit'] == '元' else None), axis=1), errors='coerce')
     df['category'] = df.apply(lambda r: classify_cat(r['title'], r['html']), axis=1)
     df['agent'] = df.apply(lambda r: classify_agent(r['title'], r['html']), axis=1)
     return df
@@ -238,8 +242,8 @@ def build_report(df, date_key, charts):
     median_wan = amt['amount_wan'].median()
     cat = df['category'].value_counts()
     cat_top = cat.head(2)
-    cat_share = f"{cat_top.iloc[0] / n * 100:.1f}%"
-    cat2_share = f"{cat_top.iloc[1] / n * 100:.1f}%"
+    cat_share = f"{cat_top.iloc[0] / n * 100:.1f}%" if len(cat_top) >= 1 else "N/A"
+    cat2_share = f"{cat_top.iloc[1] / n * 100:.1f}%" if len(cat_top) >= 2 else "0.0%"
     it = df[df['category'] == 'IT信息化']
     it_amt_sum = it['amount_wan'].sum()
     it_amt_share = f"{it_amt_sum / total_wan * 100:.1f}%" if total_wan else "N/A"
@@ -252,9 +256,12 @@ def build_report(df, date_key, charts):
     agent_soe_share = f"{agent_soe / n * 100:.1f}%"
     big = amt[amt['amount_wan'] >= 1000]
     n_big = len(big)
-    top_amt = amt.nlargest(1, 'amount_wan')
-    top_amt_title = str(top_amt.iloc[0]['title'])[:30] if n_big else '—'
-    top_amt_val = f"{top_amt.iloc[0]['amount_wan']:.0f}" if n_big else '—'
+    top_amt_title = '—'
+    top_amt_val = '—'
+    if n_big and not amt.empty:
+        top_amt = amt.nlargest(1, 'amount_wan')
+        top_amt_title = str(top_amt.iloc[0]['title'])[:30]
+        top_amt_val = f"{top_amt.iloc[0]['amount_wan']:.0f}"
 
     region_grp = df['region'].value_counts()
     t1 = region_grp.head(3)
@@ -301,15 +308,21 @@ def build_report(df, date_key, charts):
     # 金额规模表
     bins = [0, 50, 100, 200, 500, 1000, 10000]
     labels = ['<50万', '50-100万', '100-200万', '200-500万', '500-1000万', '>1000万']
-    bucket = pd.cut(amt['amount_wan'], bins=bins, labels=labels, right=False)
-    bucket_cnt = bucket.value_counts().sort_index()
-    amount_rows = '\n'.join(
-        f"| {k} | {v} | {v / len(amt) * 100:.1f}% |" for k, v in bucket_cnt.items())
+    if amt.empty:
+        amount_rows = '\n'.join(f"| {k} | 0 | 0.0% |" for k in labels)
+    else:
+        bucket = pd.cut(amt['amount_wan'], bins=bins, labels=labels, right=False)
+        bucket_cnt = bucket.value_counts().sort_index()
+        amount_rows = '\n'.join(
+            f"| {k} | {v} | {v / len(amt) * 100:.1f}% |" for k, v in bucket_cnt.items())
 
     # 大单清单
-    big_rows = '\n'.join(
-        f"| {region_name(r['region'])} | {str(r['title'])[:42]} | {r['amount_wan']:,.0f} | {r['category']} |"
-        for _, r in amt.nlargest(8, 'amount_wan').iterrows())
+    if amt.empty:
+        big_rows = ''
+    else:
+        big_rows = '\n'.join(
+            f"| {region_name(r['region'])} | {str(r['title'])[:42]} | {r['amount_wan']:,.0f} | {r['category']} |"
+            for _, r in amt.nlargest(8, 'amount_wan').iterrows())
 
     # 热词
     from collections import Counter

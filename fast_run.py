@@ -141,9 +141,13 @@ def build_summary(start_date, end_date, records, merged_df):
     lines.append('')
     lines.append('## 各条公告标题（截取）')
     if merged_df is not None and not merged_df.empty:
+        # 兼容中文/英文列名（单地区 Excel 现为中文列名）
+        t_col = 'title' if 'title' in merged_df.columns else '商机标题'
+        r_col = 'region' if 'region' in merged_df.columns else '地区'
+        d_col = 'release_date' if 'release_date' in merged_df.columns else '发布日期'
         for _, row in merged_df.iterrows():
-            title = str(row['title'])[:60]
-            lines.append(f'- [{row["region"]}] {title} ({row["release_date"]})')
+            title = str(row[t_col])[:60]
+            lines.append(f'- [{row[r_col]}] {title} ({row[d_col]})')
     else:
         lines.append('- （无命中）')
     md_path = f'output/summary_{range_key}.md'
@@ -171,7 +175,11 @@ def merge_region_excels(start_date, regions):
     dfs = []
     for region in regions:
         for path in glob.glob(f'output/date_{start_date}_{region}.xlsx'):
-            dfs.append(pd.read_excel(path))
+            d = pd.read_excel(path)
+            # 丢弃可能残留的默认索引列（历史文件可能带 Unnamed: 0）
+            if 'Unnamed: 0' in d.columns:
+                d = d.drop(columns=['Unnamed: 0'])
+            dfs.append(d)
     if not dfs:
         return None
     return pd.concat(dfs, ignore_index=True)

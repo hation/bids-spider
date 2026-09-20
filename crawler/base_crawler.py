@@ -98,6 +98,12 @@ class BaseCrawler:
         for record in data:
             record['html'] = self._html_to_text(record.get('html', ''))
             record['truncated'] = '是' if len(record['html']) > EXCEL_CELL_LIMIT else '否'
+        # 清洗所有字段中的 XML 非法控制字符，避免 openpyxl 写入报错
+        _illegal = __import__('re').compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+        for record in data:
+            for k, v in record.items():
+                if isinstance(v, str):
+                    record[k] = _illegal.sub('', v)
         file_name = getattr(self, '_excel_name', None) or (
             f"{self.region}_"
             f"{str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_')}.xlsx"
@@ -106,7 +112,7 @@ class BaseCrawler:
         file_path = os.path.join(OUTPUT_DIR, file_name)
         logger.info(f"[{self.region}]Save tenders to {file_path}")
         df = pd.DataFrame(data).rename(columns={c: e for c, e in CN_EXPORT_COLS.items() if c in data[0]})
-        df.to_excel(file_path)
+        df.to_excel(file_path, index=False)
 
     @staticmethod
     def _html_to_text(html):

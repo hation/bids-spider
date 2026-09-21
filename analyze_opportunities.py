@@ -103,10 +103,33 @@ def screen(df, cfg):
     return pd.DataFrame(rows)
 
 
+def _load_api_key(llm):
+    """api_key 优先级：环境变量 LLM_API_KEY > .env 文件 > 配置文件 api_key 字段。"""
+    key = os.environ.get("LLM_API_KEY")
+    if key:
+        return key.strip()
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("LLM_API_KEY="):
+                        key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        except OSError:
+            pass
+    if key:
+        return key
+    return (llm.get("api_key") or "").strip()
+
+
 def llm_deep_read(cfg, df, date_key):
     """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。"""
     llm = cfg.get("LLM精读") or {}
-    if not llm.get("启用") or not llm.get("api_key"):
+    api_key = _load_api_key(llm)
+    if not llm.get("启用") or not api_key:
+        print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可用 .env 中 LLM_API_KEY 配置）")
         return None
     limit = int(llm.get("精读条数上限", 15))
     # 优先精读直接相关 + 金额大的
@@ -129,11 +152,11 @@ def llm_deep_read(cfg, df, date_key):
         "temperature": 0.3,
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={
-        "Authorization": f"Bearer {llm['api_key']}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
@@ -205,6 +228,7 @@ def build_report(cfg, df, date_key, llm_text):
 
 {table(df[df["相关度"] == TIER_LEAD])}
 
+{llm_section}
 ## 6. 大金额机会 TOP5
 
 {('| 地区 | 商机标题 | 金额(万元) | 相关度 |\n|---|---|---|---|\n' + '\n'.join(f"| {r['地区']} | {str(r['商机标题'])[:50]} | {r['金额(万元)']:,.0f} | {r['相关度']} |" for _, r in big.iterrows())) if not big.empty else "_（无披露金额项目）_"}

@@ -18,11 +18,11 @@
   "关注地区": "全国",
   "金额区间": "不限",
   "LLM精读": {
-    "启用": false,
-    "说明": "设为 true 且配置 api_key 后，会对规则引擎筛出的机会调用大模型精读，识别隐性机会并输出深度洞察。未启用时仅使用规则引擎（免费、稳定）。",
-    "api_base": "https://api.openai.com/v1",
+    "启用": true,
+    "说明": "设为 true 且配置 api_key 后，会对规则引擎筛出的机会调用大模型精读，识别隐性机会并输出深度洞察。api_key 优先从环境变量 LLM_API_KEY 读取（.env 中配置，不入库），其次用下方 api_key 字段。",
+    "api_base": "https://ark.cn-beijing.volces.com/api/coding/v3",
     "api_key": "",
-    "model": "gpt-4o-mini",
-    "精读条数上限": 15
+    "model": "deepseek-v4-flash",
+    "精读条数上限": 100
   }
 }

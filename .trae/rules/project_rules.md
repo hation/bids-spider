@@ -94,7 +94,7 @@ echo "ALL REGIONS TODAY DONE"
 - 规则引擎：标题命中**排除关键词**（复印纸/物业/食堂…）→ 剔除；标题命中**核心关键词**（服务器/算力/AI/大模型/信创/数据中心…）→ **直接相关**；标题命中**次要关键词**（信息化/系统集成/运维…）→ **相关**；仅正文反复命中核心词 → **意向线索**（弱信号，可能存在噪声，以标题命中为主）。
 - 产物：`output/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额）+ `output/机会分析_<date>.md`（分档清单 + 大金额 TOP + 可选 LLM 洞察）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。
-- LLM 精读（可选）：配置 `LLM精读.启用=true` + api_key 后，对大金额+直接相关 top 机会调用大模型精读；调用失败自动降级为纯规则引擎，不影响主流程。
+- LLM 精读（可选）：`config/opportunities.json` 中 `LLM精读.启用=true` 后，对大金额+直接相关 top 机会调用大模型精读（火山方舟 deepseek-v4-flash）；**api_key 放 `.env` 的 `LLM_API_KEY`（不入库，已 gitignore），优先级：环境变量 > .env > 配置 api_key 字段**；调用失败自动降级为纯规则引擎，不影响主流程。
 
 ## 6. 提交推送规范
 

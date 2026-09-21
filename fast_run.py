@@ -204,6 +204,12 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
         run_analysis(start_date)
     except Exception as e:
         print(f'[run_date_mode] 需求洞察报告生成失败: {e}')
+    # 自动生成个人业务机会分析
+    try:
+        from analyze_opportunities import run_opportunities
+        run_opportunities(start_date)
+    except Exception as e:
+        print(f'[run_date_mode] 机会分析生成失败: {e}')
     # 汇总完成，清理单地区 Excel（数据已在 ES，随时可重导出）
     cleanup_region_excels(start_date)
 
@@ -254,6 +260,12 @@ def summarize_command(date_key, end_date=None):
         run_analysis(start_date)
     except Exception as e:
         print(f'[summarize] 需求洞察报告生成失败: {e}')
+    # 自动生成个人业务机会分析
+    try:
+        from analyze_opportunities import run_opportunities
+        run_opportunities(start_date)
+    except Exception as e:
+        print(f'[summarize] 机会分析生成失败: {e}')
     # 汇总完成，清理单地区 Excel（数据已在 ES，随时可重导出）
     cleanup_region_excels(start_date)
 
@@ -317,6 +329,12 @@ def query_date_from_es(date_key):
         run_analysis(date_key)
     except Exception as e:
         print(f'[db_date] 需求洞察报告生成失败: {e}')
+    # 自动生成个人业务机会分析
+    try:
+        from analyze_opportunities import run_opportunities
+        run_opportunities(date_key)
+    except Exception as e:
+        print(f'[db_date] 机会分析生成失败: {e}')
     return len(rows)
 
 

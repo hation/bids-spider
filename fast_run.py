@@ -324,6 +324,11 @@ def main():
     args = sys.argv[1:]
     cmd = args[0] if args else 'tianjin'
 
+    # today_db：只查库整理今日已入库商机，不爬网站
+    if cmd == 'today_db':
+        query_date_from_es(today_str())
+        return
+
     # 日期模式：today / by_date <start> [end] [--regions a,b] [--summary path]
     if cmd in ('today', 'by_date'):
         if cmd == 'today':
@@ -349,6 +354,11 @@ def main():
                 i += 2
             else:
                 i += 1
+        # today 两段式：先查库整理今日已有商机（不爬网站，秒出），再增量爬取补新增
+        if cmd == 'today':
+            print(f'[today] 第一步：从 ES 整理今日已入库商机...')
+            query_date_from_es(start)
+            print(f'[today] 第二步：增量爬取网站，补上最新发布的公告...')
         run_date_mode(start, end, regions=regions, summary_path=summary_path)
         return
 

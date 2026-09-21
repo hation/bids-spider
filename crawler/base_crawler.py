@@ -180,8 +180,10 @@ class BaseCrawler:
         except _DateBoundaryReached:
             logger.info(f"[{self.region}]已翻过目标日期范围，提前停止翻页")
         finally:
-            self._filter_tenders_by_date()
+            # 先入库全部（含补爬时顺带收录的今天公告，供今日查询直接复用）
             self.save_tenders_to_es()
+            # 再严格过滤到目标日期范围，用于 Excel 导出（Excel 仍只含目标日）
+            self._filter_tenders_by_date()
             self.save_tenders_to_excel()
 
     def _crawl_by_date(self, context):
@@ -205,8 +207,8 @@ class BaseCrawler:
                 return
             if d < self._date_start:  # 列表按日期倒序，遇到更早的即翻过了目标日期
                 raise _DateBoundaryReached()
-            if d <= self._date_end:
-                orig_save(tender)
+            # 目标日及之后的公告都入库（补爬时顺带收录今天发布的公告，供今日查询直接复用）
+            orig_save(tender)
 
         self.save_tender_to_es = guarded_save
         self._crawl(context)

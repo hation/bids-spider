@@ -103,35 +103,52 @@ def screen(df, cfg):
     return pd.DataFrame(rows)
 
 
-def _load_api_key(llm):
-    """api_key 优先级：环境变量 LLM_API_KEY > .env 文件 > 配置文件 api_key 字段。"""
-    key = os.environ.get("LLM_API_KEY")
-    if key:
-        return key.strip()
+def _load_env():
+    """读取项目根 .env 文件为 dict；同名环境变量（os.environ）优先。"""
+    env = {}
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(env_path):
         try:
             with open(env_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("LLM_API_KEY="):
-                        key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        break
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip().strip('"').strip("'")
         except OSError:
             pass
-    if key:
-        return key
-    return (llm.get("api_key") or "").strip()
+    # 进程环境变量优先
+    for k in list(env):
+        if k in os.environ and os.environ[k].strip():
+            env[k] = os.environ[k].strip()
+    return env
 
 
-def llm_deep_read(cfg, df, date_key):
+def load_llm_config():
+    """LLM 精读配置统一从 .env 读取：LLM_ENABLED / LLM_API_BASE / LLM_API_KEY / LLM_MODEL / LLM_LIMIT。"""
+    env = _load_env()
+
+    def _bool(v, default=False):
+        return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
+
+    return {
+        "启用": _bool(env.get("LLM_ENABLED"), False),
+        "api_base": env.get("LLM_API_BASE", "").rstrip("/"),
+        "api_key": env.get("LLM_API_KEY", ""),
+        "model": env.get("LLM_MODEL", ""),
+        "limit": int(float(env.get("LLM_LIMIT", 15) or 15)),
+    }
+
+
+def llm_deep_read(df, date_key):
     """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。"""
-    llm = cfg.get("LLM精读") or {}
-    api_key = _load_api_key(llm)
-    if not llm.get("启用") or not api_key:
-        print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可用 .env 中 LLM_API_KEY 配置）")
+    llm = load_llm_config()
+    api_key = llm["api_key"]
+    if not llm["启用"] or not api_key:
+        print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可在 .env 中配置 LLM_ENABLED/LLM_API_KEY）")
         return None
-    limit = int(llm.get("精读条数上限", 15))
+    limit = llm["limit"]
     # 优先精读直接相关 + 金额大的
     order = {TIER_DIRECT: 0, TIER_RELATED: 1, TIER_LEAD: 2}
     sub = df.assign(_o=df["相关度"].map(order)).sort_values(
@@ -145,9 +162,9 @@ def llm_deep_read(cfg, df, date_key):
         f"请从中识别：1) 最值得跟进的 3-5 个高价值机会及理由（客户是谁、预算量级、切入建议）；"
         f"2) 哪些是噪声或低价值；3) 对整体商机的一句话判断。\n\n" + "\n".join(items)
     )
-    url = (llm.get("api_base") or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
+    url = (llm["api_base"] or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
     body = json.dumps({
-        "model": llm.get("model", "gpt-4o-mini"),
+        "model": llm["model"] or "gpt-4o-mini",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
     }).encode("utf-8")
@@ -156,7 +173,7 @@ def llm_deep_read(cfg, df, date_key):
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with urllib.request.urlopen(req, timeout=600) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
@@ -199,7 +216,7 @@ def build_report(cfg, df, date_key, llm_text):
         llm_section = """
 ## 5. LLM 深度洞察
 
-未启用（`config/opportunities.json` 中 `LLM精读.启用=false`）。如需大模型精读，配置 api_key 后重跑即可。
+未启用（`.env` 中 `LLM_ENABLED=true` 且配置 `LLM_API_KEY` 后生效）。当前仅使用规则引擎。
 """
 
     report = f"""# {biz} 商机机会分析（{date_key}）
@@ -258,7 +275,7 @@ def run_opportunities(date_key=None):
     hit.to_excel(xlsx, index=False)
     print(f"[opportunities] 机会清单已生成: {xlsx}")
 
-    llm_text = llm_deep_read(cfg, hit, date_key)
+    llm_text = llm_deep_read(hit, date_key)
     report = build_report(cfg, hit, date_key, llm_text)
     md = os.path.join(OUTPUT_DIR, f"机会分析_{date_key}.md")
     with open(md, "w", encoding="utf-8") as f:

@@ -204,6 +204,28 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
         run_analysis(start_date)
     except Exception as e:
         print(f'[run_date_mode] 需求洞察报告生成失败: {e}')
+    # 汇总完成，清理单地区 Excel（数据已在 ES，随时可重导出）
+    cleanup_region_excels(start_date)
+
+
+def cleanup_region_excels(start_date):
+    """汇总完成后清理该日的单地区 Excel（date_<date>_<region>.xlsx）。
+
+    数据已合并进 date_<date>.xlsx 且全量在 ES 中（可用 db_date 随时重导出），
+    单地区文件无需保留，避免 output 目录无限增长。
+    """
+    import glob as _g
+    removed = 0
+    for path in _g.glob(f'output/date_{start_date}_*.xlsx'):
+        if path.endswith(f'date_{start_date}.xlsx'):
+            continue
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f'[cleanup] 已清理 {removed} 个单地区 Excel（{start_date}）')
 
 
 def summarize_command(date_key, end_date=None):
@@ -232,6 +254,8 @@ def summarize_command(date_key, end_date=None):
         run_analysis(start_date)
     except Exception as e:
         print(f'[summarize] 需求洞察报告生成失败: {e}')
+    # 汇总完成，清理单地区 Excel（数据已在 ES，随时可重导出）
+    cleanup_region_excels(start_date)
 
 
 def query_date_from_es(date_key):

@@ -19,7 +19,7 @@ import sys
 import zipfile
 from datetime import datetime
 
-DEFAULT_KEEP_DAYS = 30
+DEFAULT_KEEP_DAYS = 7  # 保留 7 天，之后自动归档压缩
 RUNTIME_ROTATE_MB = 50  # runtime.log 超过该大小（MB）则轮转压缩
 
 # 各目录下需要归档的文件模式

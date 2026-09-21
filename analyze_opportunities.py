@@ -166,8 +166,12 @@ def select_for_llm(df, limit):
     return df.reset_index(drop=True)
 
 
-def llm_deep_read(df, date_key):
-    """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。"""
+def llm_deep_read(cfg, df, date_key):
+    """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。
+
+    提示词模板从 config/opportunities.json 的 LLM提示词 读取（可自由调整），
+    占位符 {date_key} / {items} 由本函数填充。
+    """
     llm = load_llm_config()
     api_key = llm["api_key"]
     if not llm["启用"] or not api_key:
@@ -182,15 +186,16 @@ def llm_deep_read(df, date_key):
     for _, r in sub.iterrows():
         items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} "
                      f"(金额{r['金额(万元)'] if pd.notna(r['金额(万元)']) else '未披露'}万元, 链接{r['公告链接']})")
-    prompt = (
-        f"你是服务器/IT/AI 方向的销售顾问。以下是 {date_key} 全国政府采购平台中按关键词筛出的候选商机，"
-        f"请从中识别：1) 最值得跟进的 3-5 个高价值机会及理由（客户是谁、预算量级、切入建议）；"
-        f"2) 哪些是噪声或低价值；3) 对整体商机的一句话判断。\n\n" + "\n".join(items)
-    )
+    prompts = (cfg.get("LLM提示词") or {})
+    system = (prompts.get("system") or "").strip()
+    user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
+    user_content = user_tpl.format(date_key=date_key, items="\n".join(items))
+    messages = ([{"role": "system", "content": system}] if system else []) + [
+        {"role": "user", "content": user_content}]
     url = (llm["api_base"] or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
     body = json.dumps({
         "model": llm["model"] or "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "temperature": 0.3,
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={
@@ -300,7 +305,7 @@ def run_opportunities(date_key=None):
     hit.to_excel(xlsx, index=False)
     print(f"[opportunities] 机会清单已生成: {xlsx}")
 
-    llm_text = llm_deep_read(hit, date_key)
+    llm_text = llm_deep_read(cfg, hit, date_key)
     report = build_report(cfg, hit, date_key, llm_text)
     md = os.path.join(OUTPUT_DIR, f"机会分析_{date_key}.md")
     with open(md, "w", encoding="utf-8") as f:

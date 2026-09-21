@@ -126,19 +126,44 @@ def _load_env():
 
 
 def load_llm_config():
-    """LLM 精读配置统一从 .env 读取：LLM_ENABLED / LLM_API_BASE / LLM_API_KEY / LLM_MODEL / LLM_LIMIT。"""
+    """LLM 精读配置统一从 .env 读取：LLM_ENABLED / LLM_API_BASE / LLM_API_KEY / LLM_MODEL / LLM_LIMIT。
+
+    LLM_LIMIT 为「兜底上限」（默认 50，设 0 表示不限）：实际精读条目由 select_for_llm
+    自动挑选——直接相关全部精读 + 其余按金额优先补足，无需手动设置具体条数。
+    """
     env = _load_env()
 
     def _bool(v, default=False):
         return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
 
+    try:
+        limit = int(float(env.get("LLM_LIMIT", 50) or 50))
+    except (TypeError, ValueError):
+        limit = 50
     return {
         "启用": _bool(env.get("LLM_ENABLED"), False),
         "api_base": env.get("LLM_API_BASE", "").rstrip("/"),
         "api_key": env.get("LLM_API_KEY", ""),
         "model": env.get("LLM_MODEL", ""),
-        "limit": int(float(env.get("LLM_LIMIT", 15) or 15)),
+        "limit": limit,
     }
+
+
+def select_for_llm(df, limit):
+    """自动挑选精读条目：直接相关全部 + 其余按「有金额优先、金额降序」补足到 limit。
+
+    limit<=0 表示不限（全部精读，一般不推荐，token 成本高）。
+    """
+    if limit and limit > 0:
+        direct = df[df["相关度"] == TIER_DIRECT]
+        rest = df[df["相关度"] != TIER_DIRECT].copy()
+        rest = rest.assign(_has_amt=rest["金额(万元)"].notna()).sort_values(
+            ["_has_amt", "金额(万元)"], ascending=[False, False], na_position="last")
+        budget = limit - len(direct)
+        if budget > 0:
+            return pd.concat([direct, rest.head(budget)], ignore_index=True)
+        return direct.reset_index(drop=True)
+    return df.reset_index(drop=True)
 
 
 def llm_deep_read(df, date_key):
@@ -148,11 +173,11 @@ def llm_deep_read(df, date_key):
     if not llm["启用"] or not api_key:
         print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可在 .env 中配置 LLM_ENABLED/LLM_API_KEY）")
         return None
-    limit = llm["limit"]
-    # 优先精读直接相关 + 金额大的
-    order = {TIER_DIRECT: 0, TIER_RELATED: 1, TIER_LEAD: 2}
-    sub = df.assign(_o=df["相关度"].map(order)).sort_values(
-        ["_o", "金额(万元)"], ascending=[True, False], na_position="last").head(limit)
+    # 自动挑选精读条目：直接相关全精读 + 其余按金额优先补足，LLM_LIMIT 仅作兜底
+    sub = select_for_llm(df, llm["limit"])
+    print(f"[opportunities] LLM 精读 {len(sub)} 条 "
+          f"(直接相关 {(sub['相关度'] == TIER_DIRECT).sum()} / "
+          f"其余 {(sub['相关度'] != TIER_DIRECT).sum()})")
     items = []
     for _, r in sub.iterrows():
         items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} "

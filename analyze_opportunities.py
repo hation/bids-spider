@@ -93,10 +93,13 @@ def screen(df, cfg):
             "匹配关键词": "、".join(hits),
             "金额(万元)": r.get("amount_wan", None),
             "发布日期": r.get("release_date", ""),
+            "商机详情": html,
+            "详情截断": r.get("truncated", ""),
         })
     if not rows:
         return pd.DataFrame(columns=["地区", "公告链接", "商机标题", "公告类型",
-                                     "相关度", "匹配关键词", "金额(万元)", "发布日期"])
+                                     "相关度", "匹配关键词", "金额(万元)", "发布日期",
+                                     "商机详情", "详情截断"])
     return pd.DataFrame(rows)
 
 

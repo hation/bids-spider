@@ -5,20 +5,26 @@
 ## 功能特性
 
 - **Playwright 无头浏览器抓取**：29 个省级地区站点，内置验证码识别（ddddocr / OCR）、随机延时、反爬对抗
-- **增量去重入库**：以公告 URL（href）为文档 ID 写入 Elasticsearch，已入库自动跳过
-- **自动导出 Excel**：每次运行按地区输出 `output/<region>_<时间戳>.xlsx`
-- **可配置抓取范围**：单地区 / 全部地区顺序 / 多地区并行批跑
+- **增量去重入库**：以公告 URL（href）为文档 ID 写入 Elasticsearch，已入库自动跳过（三重去重）
+- **按日期抓取**：`today`（两段式：先查库再增量爬）/ `by_date`（指定日期）/ `today_db` / `db_date`（只查库）
+- **补爬顺带收录**：补抓历史日时，列表页扫到的今日公告一并入库，不丢弃
+- **自动导出 Excel**：中文列名（地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
+- **需求洞察报告**：抓取完自动生成统计图表 + 咨询级 Markdown 报告
+- **可配置抓取范围**：单地区 / 全部地区顺序 / 多地区并行批跑（`xargs -P 4`）
+- **自动化**：每日 10:00 自动补抓昨日；每日 09:00 自动归档超 7 天旧文件
 
 ## 项目结构
 
 ```
 bids-spider/
-├── crawler/          # 核心：29 个地区爬虫 + base_crawler 基类（Tender 模型 / ES 存取 / Excel 导出）
+├── crawler/          # 核心：29 个地区爬虫 + base_crawler 基类（Tender 模型 / ES 存取 / Excel 导出 / 日期模式）
 ├── utils/            # 核心：es（Elasticsearch 客户端）/ log（日志配置）/ captcha（验证码识别）
-├── fast_run.py       # 核心入口：单地区或全部地区爬取
+├── fast_run.py       # 核心入口：today / today_db / by_date / db_date / summarize
+├── analyze_today.py  # 需求洞察报告生成器（抓取后自动调用）
+├── scripts/          # 辅助：backfill_details（补详情）/ archive_output（目录归档）
 ├── legacy/           # 旧版 requests+selenium 链路（Mongo/CSV），已归档，不参与当前批跑
-├── logs/             # 运行日志（runtime.log、crawl_p_*.log）
-├── output/           # 抓取产物（各地区 Excel）
+├── logs/             # 运行日志（runtime.log、date_run_*.log）
+├── output/           # 抓取产物（汇总 Excel、洞察报告、图表）
 └── docs/             # 产品需求与实现细节文档
 ```
 
@@ -37,6 +43,21 @@ playwright install chromium
 ## 使用
 
 ```bash
+# 获取今日商机（两段式：先查库整理已有 → 再增量爬补新增）
+python fast_run.py today
+
+# 只查库整理今日已入库商机（不爬网站，秒出）
+python fast_run.py today_db
+
+# 爬取指定日期+地区（重新爬网站）
+python fast_run.py by_date 2026-09-18 --regions beijing
+
+# 查库历史某天（不爬网站）
+python fast_run.py db_date 2026-09-17
+
+# 汇总 + 自动生成需求洞察报告
+python fast_run.py summarize 2026-09-18
+
 # 爬取单个地区（如北京）
 python fast_run.py beijing
 
@@ -51,9 +72,10 @@ done
 
 ## 数据与产物
 
-- **存储**：Elasticsearch 索引 `tenders`，字段 `region / href / title / release_date / crawl_date / html`，按 `href` 去重
-- **Excel**：`output/<region>_<时间戳>.xlsx`，列 `region / href / title / release_date / crawl_date / html（纯文本） / truncated（正文是否超长截断）`
-- **日志**：loguru 写入 `logs/runtime.log`；并行批跑日志建议重定向到 `logs/crawl_p_<region>.log`
+- **存储**：Elasticsearch 索引 `tenders`，字段 `region / href / title / release_date / crawl_date / html`，按 `href` 幂等去重
+- **Excel**：`output/date_<date>.xlsx`（汇总，中文列名：地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
+- **洞察报告**：`output/需求洞察报告_<date>.md` + `output/charts/` 图表
+- **日志**：loguru 写入 `logs/runtime.log`（每周轮转）；并行批跑日志写 `logs/date_run_<region>.log`（超 7 天自动归档）
 
 ## 支持的地区
 

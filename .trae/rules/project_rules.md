@@ -16,11 +16,14 @@
 1. ES 可用：`curl -s -u elastic:7aNJbD0LTxsVLyuRcHSQ "http://localhost:9200/tenders/_count"`（能返回数字即可）。
 2. 确认无残留爬虫进程：`ps aux | grep "fast_run.py" | grep -v grep`，如有先清理。
 
-### 2.2 单命令顺序跑（少量地区 / 冒烟测试）
+### 2.2 命令速查
 
 ```bash
-.venv/bin/python fast_run.py today                       # 抓今天全部地区（顺序）
-.venv/bin/python fast_run.py by_date 2026-09-18 --regions beijing   # 指定日期+地区
+.venv/bin/python fast_run.py today                  # 今日商机：两段式（先查库整理已有 → 再增量爬补新增）
+.venv/bin/python fast_run.py today_db               # 只查库整理今日已入库商机，不爬网站（秒出）
+.venv/bin/python fast_run.py by_date 2026-09-18 --regions beijing   # 指定日期+地区（重新爬网站）
+.venv/bin/python fast_run.py db_date 2026-09-17     # 查库历史某天，不爬网站
+.venv/bin/python fast_run.py summarize <date>       # 汇总 + 自动生成洞察报告
 ```
 
 跑完自动产出：汇总 Excel `output/date_<date>.xlsx`、摘要 `output/summary_<date>.md`、需求洞察报告 `output/需求洞察报告_<date>.md`。
@@ -49,20 +52,27 @@ echo "ALL REGIONS TODAY DONE"
 
 该命令读取 jsonl，合并各地区 Excel 生成 `output/date_<date>.xlsx`，并**自动调用 `analyze_today.py` 生成需求洞察报告**（无需手动触发）。
 
-### 2.5 查看历史某天商机（查库，不爬网站）
+**汇总完成后自动清理**：单地区 Excel（`date_<date>_<region>.xlsx`）会自动删除——数据已合并进汇总且全量在 ES（可随时 `db_date` 重导出），不保留避免 output 膨胀。
 
-```bash
-.venv/bin/python fast_run.py db_date 2026-09-17
-```
-
-该命令直接从 Elasticsearch 按 `release_date` 查询历史某天的全部公告（scroll 拉全量），导出统一 Excel 并自动生成洞察报告，**不访问任何网站**。与 `by_date`（重新爬取）的区别：`db_date` 只读库，适合回溯已入库的历史数据。
+### 2.5 按日期与查库命令
 
 | 命令 | 行为 | 适用场景 |
 |---|---|---|
+| `today` | 两段式：先查库整理今日已有，再增量爬网站补新增 | 获取今日完整商机（推荐） |
+| `today_db` | 只查 ES 今日已入库数据，不爬网站 | 快速看今日已有数据 |
 | `by_date <date>` | 重新爬网站该日公告 | 补抓缺失数据 |
 | `db_date <date>` | 从 ES 查库该日公告 | 快速看历史，不碰网站 |
 
-注意：`db_date` 只能查到**已入库**的数据，若某天从未运行过抓取，库里无该日数据会提示 `ES 中无数据`。
+注意：`db_date`/`today_db` 只能查到**已入库**的数据，若某天从未运行过抓取，库里无该日数据会提示 `ES 中无数据`。
+
+### 2.6 定时任务（自动化）
+
+| 任务 | 时间 | 作用 |
+|---|---|---|
+| 每日补抓昨日商机（`8f6dc4dd`） | 每天 10:00 | 补抓昨天 00:00~24:00 全量公告；**顺带收录今天发布的公告**（不丢弃，供 today_db/today 直接复用） |
+| output 目录自动归档（`8b309137`） | 每天 09:00 | output 与 logs 下超过 7 天的旧文件自动压缩归档到各 `archive/` |
+
+**补爬顺带收录机制**：`by_date` 补任意历史日时，列表页扫到的**目标日及之后**（含今天/更晚）公告一并入库（`guarded_save` 已放开上界，finally 先入库全部再过滤导出 Excel）。Excel 仍只含目标日，今天的公告只进 ES 供查询。
 
 ## 3. 需求洞察报告（analyze_today.py）
 
@@ -89,6 +99,8 @@ echo "ALL REGIONS TODAY DONE"
 
 ## 6. 日常维护
 
-- 爬虫进度可配定时任务每 30 分钟同步（`schedule` ab6f26ca），检查 `crawl_parallel.log` 与各 `crawl_p_*.log`。
 - 详情正文用 html2text 转纯文本存 Excel，超长内容标 `truncated=是`（Excel 单格上限 32767 字符）。
 - 验证码站点（黑龙江/甘肃/陕西/河南）已用 ddddocr + 重试打通，勿回退。
+- **output 目录管理**：单地区 Excel 汇总后自动清理；`scripts/archive_output.py` 每日 09:00 归档超 7 天的汇总 Excel/报告/图表/jsonl 到 `output/archive/`。
+- **logs 目录管理**：`date_run_*.log`/`crawl_*.log`/`backfill_*.log` 超 7 天自动归档到 `logs/archive/`；`runtime.log` 超 50MB 自动轮转压缩（loguru 已配每周轮转+保留 10 份，双保险）。
+- **补爬顺带收录**：每天 10:00 补抓昨日时，今天的公告会一并入库（不丢弃），用 `today_db` 或 `today` 第一步即可直接查库拿到。

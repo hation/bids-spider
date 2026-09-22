@@ -22,6 +22,8 @@ TENDER_INDEX_BODY = {
             "title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "release_date": {"type": "keyword"},
             "crawl_date": {"type": "date", "format": "yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis"},
+            "amount_wan": {"type": "double"},              # 项目金额（万元）
+            "bid_deadline": {"type": "keyword"},           # 投标截止时间（ISO）
             "html": {"type": "text", "index": False},
         },
     },
@@ -91,6 +93,11 @@ class ESConnection:
         index = index_name or self.default_index
         try:
             if client.indices.exists(index=index):
+                # 索引已存在：补充新字段 mapping（如 amount_wan / bid_deadline）
+                mapping_body = body or TENDER_INDEX_BODY
+                new_props = mapping_body.get("mappings", {}).get("properties", {})
+                if new_props:
+                    client.indices.put_mapping(index=index, properties=new_props)
                 return True
             mapping_body = body or TENDER_INDEX_BODY
             client.indices.create(index=index, body=mapping_body)

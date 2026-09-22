@@ -36,6 +36,8 @@ class Tender:
     release_date: str = ''
     html: str = ''
     crawl_date: str = ''
+    amount_wan: float = None      # 项目金额（万元），入库时从正文提取
+    bid_deadline: str = ''        # 投标截止时间（ISO YYYY-MM-DD[ HH:MM]），入库时从正文提取
 
 
 class BaseCrawler:
@@ -132,7 +134,28 @@ class BaseCrawler:
         text = re.sub(r'<[/!]?[a-zA-Z][^>]*>', '', text)
         return text
 
+    def _enrich_meta(self, tender):
+        """入库前从正文提取金额与投标截止时间，写入 Tender 结构化字段。
+
+        复用 analyze_today 的提取逻辑（金额兼容元/万元；截止时间兼容多平台格式）。
+        """
+        if tender.amount_wan is not None and tender.bid_deadline:
+            return  # 已提取过，避免重复
+        try:
+            from analyze_today import extract_money, extract_timeline
+            text = self._html_to_text(tender.html)
+            unit, val = extract_money(text)
+            if unit == '万元':
+                tender.amount_wan = float(val)
+            elif unit == '元':
+                tender.amount_wan = float(val) / 10000
+            tl = extract_timeline(text)
+            tender.bid_deadline = tl.get('投标截止') or ''
+        except Exception as e:
+            logger.warning(f"[{self.region}] 提取金额/截止时间失败: {e}")
+
     def save_tender_to_es(self, tender):
+        self._enrich_meta(tender)
         logger.info(f"[{self.region}]Save {tender.title} tenders to Elasticsearch.")
         self.es_conn.save_tender(tender)
 
@@ -140,6 +163,8 @@ class BaseCrawler:
         if not self.tenders:
             logger.info(f"[{self.region}]Nothing to save.")
             return
+        for t in self.tenders.values():
+            self._enrich_meta(t)
         logger.info(f"[{self.region}]Save {len(self.tenders)} tenders to Elasticsearch.")
         self.es_conn.save_tenders_bulk(self.tenders.values())
 

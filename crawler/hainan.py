@@ -34,10 +34,8 @@ class HaiNan(BaseCrawler):
         self._get_tenders(context, page)
 
     def _get_tenders(self, context, page):
-        # 分页循环：pn 为偏移量（步长=rn），默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：pn 为偏移量（步长=rn），翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for i in range(self.max_pages):
-            if len(self.tenders) >= 100:
-                break
             pn = i * 10
             self.body.update({'pn': pn, 'rn': 10})
             response = context.request.post(self.api_url, data=json.dumps(self.body), headers=self.headers)

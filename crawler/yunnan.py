@@ -26,10 +26,8 @@ class YunNan(BaseCrawler):
         page.wait_for_selector('a[data-bulletin_id]', timeout=30000)
         page.wait_for_timeout(2000)  # 等待列表渲染完成
 
-        # 分页循环：默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for p in range(1, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             api_url = self.api_url.replace('p=1', f'p={p}')
             response = context.request.get(
                 api_url,

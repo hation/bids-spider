@@ -33,10 +33,8 @@ class ShanDong(BaseCrawler):
         page.goto(self.index_url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_selector("div.list-item", timeout=30000)  # 等待 SPA 异步渲染
         page.wait_for_timeout(2000)
-        # 分页循环：默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for page_num in range(1, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             self.body['currentPage'] = page_num
             records_count, page_size, tenders = self.get_one_page_titles(context)
             logger.info(f"[{self.region}]get {len(tenders)} tenders list success (page {page_num}).")

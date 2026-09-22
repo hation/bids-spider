@@ -48,10 +48,8 @@ class GuangXi(BaseCrawler):
     def _get_tenders(self, context):
         # 页大小优先取页面捕获的 list_body 中的 pageSize，缺省按 10 判断
         page_size = self.list_body.get('pageSize') or 10
-        # 分页循环：默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for page_no in range(1, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             self.list_body.update({'pageNo': page_no})
             response = context.request.post(
                 self.list_url,

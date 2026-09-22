@@ -195,8 +195,9 @@ class BaseCrawler:
                 if hasattr(self, attr):
                     setattr(self, attr, base_url)
         else:
-            # 扫描模式：限制页数兜底，避免无谓翻页
-            self.max_pages = min(getattr(self, 'max_pages', 50), 8)
+            # 扫描模式：翻页深度由日期判断决定（guarded_save 遇早于目标日即抛异常停止），
+            # 页数仅作防死循环兜底（200 页），不再用 8 页硬截断目标日
+            self.max_pages = min(getattr(self, 'max_pages', 50), 200)
 
         orig_save = self.save_tender_to_es
 

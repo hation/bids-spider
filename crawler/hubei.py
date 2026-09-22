@@ -24,8 +24,6 @@ class HuBei(BaseCrawler):
             for href, tender in self.get_one_page_titles(page).items():
                 if href not in tenders:
                     tenders[href] = tender
-            if len(tenders) >= 100:
-                break
             # 翻页：URL index_N.html（N 为 1-based），导航后等待列表重新渲染
             next_page = page_no + 2
             next_url = f"{self.base_url}/notice/cggg/pzbgg/index_{next_page}.html"

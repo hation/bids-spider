@@ -37,7 +37,7 @@ class ZheJiang(BaseCrawler):
                 if item.locator('span.ewb-date').count():
                     date_text = (item.locator('span.ewb-date').first.inner_text() or '').strip()
                 records.append((href, title, date_text))
-            if not records or len(records) >= 100:
+            if not records:
                 break
             # 翻页：点击下一页页码（mricode.pagination，data-page-index 为 0-based 页码）
             next_idx = page_no + 1

@@ -39,10 +39,8 @@ class GuiZhou(BaseCrawler):
         self._get_tenders(context)
 
     def _get_tenders(self, context):
-        # 分页循环：默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for page_no in range(1, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             self.body.update({'pageNo': page_no, 'pageSize': 15})
             response = context.request.post(self.list_api, data=json.dumps(self.body), headers=self.headers)
             data = response.json()

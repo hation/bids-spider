@@ -17,7 +17,7 @@ class NingXia(BaseCrawler):
         super().__init__('ningxia', max_page_num=None)
         self.index_url = 'https://ggzyjy.fzggw.nx.gov.cn/dzjy/001001/trade_infomation.html'
         self.max_pages = 50  # 最多抓取页数
-        self.max_items = 500  # 最多抓取条数（与 max_pages 取先到者）
+        self.max_items = 5000  # 最多抓取条数（与 max_pages 取先到者；已放宽，避免到达目标日前截断）
 
     def _crawl(self, context):
         page = context.new_page()

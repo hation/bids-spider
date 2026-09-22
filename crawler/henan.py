@@ -16,7 +16,7 @@ class HeNan(BaseCrawler):
     def __init__(self, max_pages=50):
         super().__init__('henan', max_page_num=None)
         self.max_pages = max_pages
-        self.max_items = 500
+        self.max_items = 5000
         self.list_url = 'http://www.ccgp-henan.gov.cn/henan/ggcx'
         self.base_url = 'http://www.ccgp-henan.gov.cn'
         self.ocr = DdddOCR()

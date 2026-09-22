@@ -43,7 +43,7 @@ class FuJian(BaseCrawler):
                 if item.locator('label.time').count():
                     date_text = (item.locator('label.time').first.inner_text() or '').strip()
                 records.append((href, title, date_text))
-            if not records or len(records) >= 100:
+            if not records:
                 break
             # 翻页：点击下一页页码（分页器为 el-pagination，页码 li.number 为 1-based）
             next_page = page_no + 2

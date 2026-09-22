@@ -24,8 +24,6 @@ class JiangXi(BaseCrawler):
             for href, tender in self.get_one_page_titles(page).items():
                 if href not in tenders:
                     tenders[href] = tender
-            if len(tenders) >= 100:
-                break
             # 翻页：点击下一页页码（mricode.pagination，data-page-index 为 0-based 页码）
             next_idx = page_no + 1
             next_link = page.locator(f'.pager .m-pagination-page a[data-page-index="{next_idx}"]')

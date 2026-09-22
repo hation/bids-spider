@@ -17,7 +17,7 @@ class ShaanXi(BaseCrawler):
     def __init__(self, max_pages=50):
         super().__init__('shaanxi', max_page_num=None)
         self.max_pages = max_pages
-        self.max_items = 500
+        self.max_items = 5000
         self.list_url = 'https://www.ccgp-shaanxi.gov.cn/cms-sx/site/shanxi/xxgg/index.html?result=result'
         self.list_api = 'https://www.ccgp-shaanxi.gov.cn/freecms/rest/v1/notice/selectInfoMoreChannel.do'
         self.base_url = 'https://www.ccgp-shaanxi.gov.cn'

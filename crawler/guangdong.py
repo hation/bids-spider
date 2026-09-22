@@ -41,10 +41,8 @@ class GuangDong(BaseCrawler):
         rows = (data.get("data") or {}).get("rows") or []
         logger.info(f"[{self.region}]get {len(rows)} tenders list success (page 1).")
         self._get_tenders(context, rows)
-        # 分页循环：直接重放接口请求并修改 currPage，默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：直接重放接口请求并修改 currPage，翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for curr_page in range(2, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             try:
                 api_url = self._set_page_param(self.list_api_url, 'currPage', curr_page)
                 resp = context.request.get(api_url, headers={**self.list_headers, 'Referer': self.list_url})

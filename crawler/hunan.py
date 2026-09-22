@@ -26,7 +26,7 @@ class HuNan(BaseCrawler):
         self.base_url = 'http://www.ccgp-hunan.gov.cn'
         self.detail_api = 'http://www.ccgp-hunan.gov.cn/portal/detail'
         self.max_pages = 50  # 最多抓取页数
-        self.max_items = 500  # 最多抓取条数（与 max_pages 取先到者）
+        self.max_items = 5000  # 最多抓取条数（与 max_pages 取先到者；已放宽，避免到达目标日前截断）
 
     def _crawl(self, context):
         page = context.new_page()

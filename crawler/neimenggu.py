@@ -41,10 +41,8 @@ class NeiMengGu(BaseCrawler):
             logger.error("未捕获到列表接口请求头，可能页面结构已变化")
             return
 
-        # 分页循环：默认抓取前 max_pages 页（或累计 100 条，取先到者）
+        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
         for page_num in range(1, self.max_pages + 1):
-            if len(self.tenders) >= 100:
-                break
             api_url = self.api_url.replace('pageNum=1', f'pageNum={page_num}')
             response = context.request.get(api_url, headers=self.headers)
             try:

@@ -103,6 +103,13 @@ def today_str():
     return datetime.now(CN_TZ).strftime('%Y-%m-%d')
 
 
+def date_dir(date_key):
+    """按日期归档目录：output/<date>/（当天所有产物集中存放）"""
+    d = os.path.join('output', date_key)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def run_region_by_date(region, start_date, end_date, summary_path=None):
     """单地区按日期抓取；可追加一行结果到 summary_path（JSONL，供并行批跑汇总）。"""
     module_name, class_name = CRAWLERS[region]
@@ -150,7 +157,7 @@ def build_summary(start_date, end_date, records, merged_df):
             lines.append(f'- [{row[r_col]}] {title} ({row[d_col]})')
     else:
         lines.append('- （无命中）')
-    md_path = f'output/summary_{range_key}.md'
+    md_path = os.path.join(date_dir(start_date), f'summary_{range_key}.md')
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
     print(f'summary saved: {md_path}')
@@ -171,10 +178,11 @@ def export_to_excel(df, path):
 
 
 def merge_region_excels(start_date, regions):
-    """合并各地区 date_<start>_<region>.xlsx 为汇总 Excel"""
+    """合并各地区 date_<start>_<region>.xlsx 为汇总 Excel（按日期目录归档）"""
     dfs = []
+    region_dir = os.path.join('output', start_date)
     for region in regions:
-        for path in glob.glob(f'output/date_{start_date}_{region}.xlsx'):
+        for path in glob.glob(os.path.join(region_dir, f'date_{start_date}_{region}.xlsx')):
             d = pd.read_excel(path)
             # 丢弃可能残留的默认索引列（历史文件可能带 Unnamed: 0）
             if 'Unnamed: 0' in d.columns:
@@ -202,8 +210,8 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None, no
     merged = merge_region_excels(start_date, regions)
     if merged is not None:
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
-        export_to_excel(merged, f'output/date_{range_key}.xlsx')
-        print(f'merged excel saved: output/date_{range_key}.xlsx')
+        export_to_excel(merged, os.path.join(date_dir(start_date), f'date_{range_key}.xlsx'))
+        print(f'merged excel saved: output/{start_date}/date_{range_key}.xlsx')
     build_summary(start_date, end_date, records, merged)
     # 自动生成需求洞察报告
     try:
@@ -222,14 +230,14 @@ def run_date_mode(start_date, end_date=None, regions=None, summary_path=None, no
 
 
 def cleanup_region_excels(start_date):
-    """汇总完成后清理该日的单地区 Excel（date_<date>_<region>.xlsx）。
+    """汇总完成后清理该日的单地区 Excel（date_<date>_<region>.xlsx，按日期目录归档）。
 
     数据已合并进 date_<date>.xlsx 且全量在 ES 中（可用 db_date 随时重导出），
     单地区文件无需保留，避免 output 目录无限增长。
     """
     import glob as _g
     removed = 0
-    for path in _g.glob(f'output/date_{start_date}_*.xlsx'):
+    for path in _g.glob(os.path.join('output', start_date, f'date_{start_date}_*.xlsx')):
         if path.endswith(f'date_{start_date}.xlsx'):
             continue
         try:
@@ -246,7 +254,7 @@ def summarize_command(date_key, end_date=None):
     start_date = date_key
     if end_date is None:
         end_date = start_date
-    jsonl_path = f'output/date_run_{start_date}.jsonl'
+    jsonl_path = os.path.join('output', start_date, f'date_run_{start_date}.jsonl')
     records = []
     if os.path.exists(jsonl_path):
         with open(jsonl_path, encoding='utf-8') as f:
@@ -259,7 +267,7 @@ def summarize_command(date_key, end_date=None):
     merged = merge_region_excels(start_date, regions)
     if merged is not None:
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
-        export_to_excel(merged, f'output/date_{range_key}.xlsx')
+        export_to_excel(merged, os.path.join(date_dir(start_date), f'date_{range_key}.xlsx'))
     build_summary(start_date, end_date, records, merged)
     # 自动生成需求洞察报告
     try:
@@ -281,7 +289,7 @@ def query_date_from_es(date_key):
     """从 Elasticsearch 按 release_date 查询某天的全部公告，导出统一格式 Excel 并生成洞察报告。
 
     与 by_date（重新爬网站）不同：本命令只查库，不访问任何网站。
-    产物：output/date_<date>.xlsx + output/需求洞察报告_<date>.md
+    产物：output/<date>/date_<date>.xlsx + output/<date>/需求洞察报告_<date>.md
     """
     from utils.es import ESConnection
     es = ESConnection()
@@ -326,8 +334,7 @@ def query_date_from_es(date_key):
             'truncated': '是' if len(str(html)) > 32767 else '否',
         })
     df = pd.DataFrame(rows)
-    os.makedirs('output', exist_ok=True)
-    out = os.path.join('output', f'date_{date_key}.xlsx')
+    out = os.path.join(date_dir(date_key), f'date_{date_key}.xlsx')
     export_to_excel(df, out)
     print(f'[db_date] {date_key} ES 命中 {total} 条，导出 {out}')
     # 自动生成需求洞察报告

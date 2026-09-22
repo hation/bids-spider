@@ -108,8 +108,9 @@ class BaseCrawler:
             f"{self.region}_"
             f"{str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_')}.xlsx"
         )
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        file_path = os.path.join(OUTPUT_DIR, file_name)
+        excel_dir = getattr(self, '_excel_dir', None) or OUTPUT_DIR
+        os.makedirs(excel_dir, exist_ok=True)
+        file_path = os.path.join(excel_dir, file_name)
         logger.info(f"[{self.region}]Save tenders to {file_path}")
         df = pd.DataFrame(data).rename(columns={c: e for c, e in CN_EXPORT_COLS.items() if c in data[0]})
         df.to_excel(file_path, index=False)
@@ -164,6 +165,7 @@ class BaseCrawler:
         self._date_end = end_date or start_date
         self._date_no_date = 0
         self._excel_name = f"date_{start_date}_{self.region}.xlsx"
+        self._excel_dir = os.path.join(OUTPUT_DIR, start_date)  # 单地区 Excel 也按日期归档
         self.exists_urls = self.get_exists_url_from_es()
         try:
             with Stealth().use_sync(sync_playwright()) as p:

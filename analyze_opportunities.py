@@ -21,9 +21,8 @@ from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 
-from analyze_today import load_and_featurize, classify_type, region_name, extract_money
+from analyze_today import load_and_featurize, classify_type, region_name, extract_money, date_dir
 
-OUTPUT_DIR = "output"
 CN_TZ = timezone(timedelta(hours=8))
 CONFIG_PATH = "config/opportunities.json"
 
@@ -299,15 +298,15 @@ def run_opportunities(date_key=None):
           f"(直接相关 {(hit['相关度'] == TIER_DIRECT).sum()} / "
           f"相关 {(hit['相关度'] == TIER_RELATED).sum()} / "
           f"意向线索 {(hit['相关度'] == TIER_LEAD).sum()})")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(date_dir(date_key), exist_ok=True)
 
-    xlsx = os.path.join(OUTPUT_DIR, f"机会清单_{date_key}.xlsx")
+    xlsx = os.path.join(date_dir(date_key), f"机会清单_{date_key}.xlsx")
     hit.to_excel(xlsx, index=False)
     print(f"[opportunities] 机会清单已生成: {xlsx}")
 
     llm_text = llm_deep_read(cfg, hit, date_key)
     report = build_report(cfg, hit, date_key, llm_text)
-    md = os.path.join(OUTPUT_DIR, f"机会分析_{date_key}.md")
+    md = os.path.join(date_dir(date_key), f"机会分析_{date_key}.md")
     with open(md, "w", encoding="utf-8") as f:
         f.write(report)
     print(f"[opportunities] 机会分析报告已生成: {md}")

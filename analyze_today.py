@@ -38,6 +38,11 @@ REGION_NAMES = {
 def region_name(code):
     return REGION_NAMES.get(str(code), str(code))
 
+
+def date_dir(date_key):
+    """按日期归档目录：output/<date>/（当天所有产物集中存放）"""
+    return os.path.join(OUTPUT_DIR, date_key)
+
 # ---------------------------------------------------------------- 分类规则
 
 # 公告类型（基于标题关键词）
@@ -156,10 +161,15 @@ CN_COLS = {
 }
 
 def load_and_featurize(date_key):
-    xlsx = os.path.join(OUTPUT_DIR, f"date_{date_key}.xlsx")
+    xlsx = os.path.join(date_dir(date_key), f"date_{date_key}.xlsx")
     if not os.path.exists(xlsx):
-        print(f"[analyze] 找不到数据文件 {xlsx}，跳过分析")
-        return None
+        # 兼容旧布局（平铺在 output/ 根目录）
+        legacy = os.path.join(OUTPUT_DIR, f"date_{date_key}.xlsx")
+        if os.path.exists(legacy):
+            xlsx = legacy
+        else:
+            print(f"[analyze] 找不到数据文件 {xlsx}，跳过分析")
+            return None
     df = pd.read_excel(xlsx)
     # 兼容中文/英文列名（旧文件可能是英文列名）
     df = df.rename(columns={c: e for c, e in CN_COLS.items() if c in df.columns})
@@ -179,7 +189,7 @@ def load_and_featurize(date_key):
 
 # ---------------------------------------------------------------- 图表生成
 
-def _barh_save(series, title, xlabel, fname, figsize=(9, 5.5), label_fs=10):
+def _barh_save(series, title, xlabel, fname, chart_dir, figsize=(9, 5.5), label_fs=10):
     fig, ax = plt.subplots(figsize=figsize)
     series.sort_values().plot.barh(ax=ax, color='#2E5EAA')
     ax.set_title(title, fontsize=14)
@@ -187,12 +197,12 @@ def _barh_save(series, title, xlabel, fname, figsize=(9, 5.5), label_fs=10):
     for i, v in enumerate(series.sort_values()):
         ax.text(v + max(series) * 0.01, i, str(v), va='center', fontsize=label_fs)
     plt.tight_layout()
-    path = os.path.join(CHARTS_DIR, fname)
+    path = os.path.join(chart_dir, fname)
     plt.savefig(path, dpi=150)
     plt.close()
     return f"charts/{fname}"
 
-def _pie_save(series, title, fname):
+def _pie_save(series, title, fname, chart_dir):
     fig, ax = plt.subplots(figsize=(7, 7))
     palette = ['#2E5EAA', '#4A7BC0', '#7FA8D9', '#A8C6E5', '#C9DBF0', '#B0B0B0', '#999999', '#888888', '#777777']
     colors = palette[:len(series)]
@@ -200,20 +210,23 @@ def _pie_save(series, title, fname):
            startangle=90, colors=colors)
     ax.set_title(title, fontsize=14)
     plt.tight_layout()
-    path = os.path.join(CHARTS_DIR, fname)
+    path = os.path.join(chart_dir, fname)
     plt.savefig(path, dpi=150)
     plt.close()
     return f"charts/{fname}"
 
 def generate_charts(df, date_key):
+    chart_dir = os.path.join(date_dir(date_key), "charts")
+    os.makedirs(chart_dir, exist_ok=True)
     charts = {}
     charts['cat'] = _barh_save(df['category'].value_counts(),
-                               f'今日商机需求品类分布（N={len(df)}）', '公告数量', f'{date_key}_cat_dist.png')
+                               f'今日商机需求品类分布（N={len(df)}）', '公告数量', f'{date_key}_cat_dist.png',
+                               chart_dir)
     charts['region'] = _barh_save(df['region'].value_counts(),
                                   f'今日商机地区分布（N={len(df)}）', '公告数量', f'{date_key}_region_dist.png',
-                                  figsize=(9, 8), label_fs=9)
-    charts['type'] = _pie_save(df['type'].value_counts(), '公告类型结构', f'{date_key}_type_pie.png')
-    charts['agent'] = _pie_save(df['agent'].value_counts(), '采购人主体类型', f'{date_key}_agent_pie.png')
+                                  chart_dir, figsize=(9, 8), label_fs=9)
+    charts['type'] = _pie_save(df['type'].value_counts(), '公告类型结构', f'{date_key}_type_pie.png', chart_dir)
+    charts['agent'] = _pie_save(df['agent'].value_counts(), '采购人主体类型', f'{date_key}_agent_pie.png', chart_dir)
     amt = df.dropna(subset=['amount_wan'])
     if len(amt) > 0:
         fig, ax = plt.subplots(figsize=(9, 5))
@@ -227,7 +240,7 @@ def generate_charts(df, date_key):
         for i, v in enumerate(cnt):
             ax.text(i, v + 0.3, str(v), ha='center')
         plt.tight_layout()
-        path = os.path.join(CHARTS_DIR, f"{date_key}_amount_dist.png")
+        path = os.path.join(chart_dir, f"{date_key}_amount_dist.png")
         plt.savefig(path, dpi=150)
         plt.close()
         charts['amount'] = f"charts/{date_key}_amount_dist.png"
@@ -455,9 +468,10 @@ def build_report(df, date_key, charts):
 
 [1] 全国政府采购网及公共资源交易平台（29 个地区）招标公告原始数据, {date_key}.
 
-[2] 自建爬虫系统抓取原始数据（{n:,} 条）及正文全文, output/date_{date_key}.xlsx.
+[2] 自建爬虫系统抓取原始数据（{n:,} 条）及正文全文, output/{date_key}/date_{date_key}.xlsx.
 """
-    out = os.path.join(OUTPUT_DIR, f"需求洞察报告_{date_key}.md")
+    out = os.path.join(date_dir(date_key), f"需求洞察报告_{date_key}.md")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, 'w', encoding='utf-8') as f:
         f.write(report)
     print(f"[analyze] 报告已生成: {out}")
@@ -469,7 +483,7 @@ def run_analysis(date_key=None):
     """拉取完今日商机后调用：读取合并 Excel，生成洞察报告。"""
     if not date_key:
         date_key = datetime.now(CN_TZ).strftime('%Y-%m-%d')
-    os.makedirs(CHARTS_DIR, exist_ok=True)
+    os.makedirs(date_dir(date_key), exist_ok=True)
     df = load_and_featurize(date_key)
     if df is None:
         return None

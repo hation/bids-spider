@@ -75,6 +75,11 @@ python fast_run.py all
 for r in beijing hebei shandong; do
   python fast_run.py $r > logs/crawl_p_$r.log 2>&1 &
 done
+
+# 按日期并行补抓（xargs -P 4，必须带 --no-summary，汇总交给 summarize 统一合并）
+printf '%s\n' beijing hebei shandong | xargs -P 4 -I {} sh -c \
+  'python fast_run.py by_date 2026-09-18 --regions {} --summary output/date_run_2026-09-18.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
+python fast_run.py summarize 2026-09-18
 ```
 
 ## 数据与产物

@@ -210,7 +210,7 @@ def llm_read(cfg, df, window_label, refresh=False):
         return None
 
 
-def build_md(cfg, df, window_label, llm_text):
+def build_md(cfg, df, window_label, llm_text, sub=None):
     n = len(df)
     biz = cfg.get("业务名称", "业务")
     counts = {t: int((df["相关度"] == t).sum()) for t in [TIER_DIRECT, TIER_RELATED, TIER_LEAD]}
@@ -236,7 +236,11 @@ def build_md(cfg, df, window_label, llm_text):
 
     llm_section = ""
     if llm_text:
-        llm_section = f"\n## 四、LLM 深度洞察\n\n{llm_text}\n"
+        validate_section = ""
+        if sub is not None and not sub.empty:
+            validate_section = "\n\n" + ao.build_llm_validate_section(
+                ao.validate_llm_output(llm_text, sub))
+        llm_section = f"\n## 四、LLM 深度洞察\n\n{llm_text}\n{validate_section}\n"
     else:
         llm_section = "\n## 四、LLM 深度洞察\n\n未启用（`.env` 中 LLM_ENABLED=true 且配置 LLM_API_KEY 后生效）。\n"
 
@@ -315,7 +319,8 @@ def main():
 
     # MD：商机分析
     llm_text = llm_read(cfg, df, window_label, refresh=refresh)
-    md = build_md(cfg, df, window_label, llm_text)
+    sub = ao.select_for_llm(df, ao.load_llm_config()["limit"]) if llm_text else None
+    md = build_md(cfg, df, window_label, llm_text, sub=sub)
     md_path = os.path.join(out_dir, f"商机分析_{start_date}_{end_date}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md)

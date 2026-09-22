@@ -15,6 +15,7 @@
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import datetime, timezone, timedelta
@@ -181,6 +182,59 @@ def _items_hash(items):
     return hashlib.md5("\n".join(sorted(items)).encode("utf-8")).hexdigest()
 
 
+def validate_llm_output(llm_text, sub):
+    """校验 LLM 精读结果对清单编号的引用（方案1+3）。
+
+    - 方案1：提取 LLM 文本中所有 [N] 引用，检查是否在 1~len(sub) 内，
+      非法编号列出警告（防幻觉）。
+    - 方案3：把被引用的合法编号映射回清单真实项目（地区/标题/金额/投标截止），
+      供人工对照模型说法与真实数据是否一致。
+    返回 dict：{'invalid': [非法编号], 'refs': {编号: {真实项目信息}}}；无引用返回 None。
+    """
+    if not llm_text or sub is None or sub.empty:
+        return None
+    refs = set()
+    for m in re.finditer(r"\[(\d+)\]", llm_text):
+        refs.add(int(m.group(1)))
+    if not refs:
+        return None
+    valid = set(range(1, len(sub) + 1))
+    invalid = sorted(refs - valid)
+    ref_map = {}
+    for n in sorted(refs & valid):
+        r = sub.iloc[n - 1]
+        amt = r.get("金额(万元)")
+        ref_map[n] = {
+            "地区": r.get("地区", ""),
+            "标题": str(r.get("商机标题", ""))[:55],
+            "金额": f"{amt:,.0f}万" if pd.notna(amt) and amt else "未披露",
+            "投标截止": str(r.get("投标截止", ""))[:16] if pd.notna(r.get("投标截止")) and r.get("投标截止") else "未披露",
+            "相关度": r.get("相关度", ""),
+        }
+    return {"invalid": invalid, "refs": ref_map}
+
+
+def build_llm_validate_section(v):
+    """把校验结果渲染成 Markdown 片段（附在 LLM 洞察章节后）。"""
+    if not v:
+        return ""
+    lines = []
+    if v["invalid"]:
+        lines.append(f"> ⚠️ **编号校验：模型引用了清单中不存在的编号 {v['invalid']}（清单共 "
+                     f"{len(v['refs']) + len(v['invalid'])} 条内仅 {len(v['refs'])} 条合法），"
+                     f"对应信息请警惕，勿直接采信。**")
+    lines.append("**编号 → 清单真实项目对照（人工核对模型说法是否属实）：**")
+    lines.append("")
+    lines.append("| 编号 | 清单真实项目 | 地区 | 真实金额 | 真实投标截止 |")
+    lines.append("|---|---|---|---|---|")
+    for n, info in v["refs"].items():
+        lines.append(f"| [{n}] | {info['标题']} | {info['地区']} | {info['金额']} | {info['投标截止']} |")
+    if v["invalid"]:
+        lines.append("")
+        lines.append("> 注：上表仅列出合法编号对应的真实项目；模型若引用非法编号，无法对应到清单任何项目。")
+    return "\n".join(lines)
+
+
 def llm_deep_read(cfg, df, date_key, refresh=False):
     """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。
 
@@ -264,8 +318,11 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
         return None
 
 
-def build_report(cfg, df, date_key, llm_text):
-    """生成 Markdown 机会分析报告。"""
+def build_report(cfg, df, date_key, llm_text, sub=None):
+    """生成 Markdown 机会分析报告。
+
+    sub 为本次精读挑选的清单（含编号顺序），用于在 LLM 洞察后附编号校验与对照表。
+    """
     n = len(df)
     biz = cfg.get("业务名称", "业务")
     tiers = [TIER_DIRECT, TIER_RELATED, TIER_LEAD]
@@ -337,10 +394,15 @@ def build_report(cfg, df, date_key, llm_text):
 
     llm_section = ""
     if llm_text:
+        validate_section = ""
+        if sub is not None and not sub.empty:
+            validate_section = "\n\n" + build_llm_validate_section(
+                validate_llm_output(llm_text, sub))
         llm_section = f"""
 ## 5. LLM 深度洞察
 
 {llm_text}
+{validate_section}
 """
     else:
         llm_section = """
@@ -430,7 +492,8 @@ def run_opportunities(date_key=None, refresh=False):
     print(f"[opportunities] 机会清单已生成: {xlsx}")
 
     llm_text = llm_deep_read(cfg, hit, date_key, refresh=refresh)
-    report = build_report(cfg, hit, date_key, llm_text)
+    sub = select_for_llm(hit, load_llm_config()["limit"]) if llm_text else None
+    report = build_report(cfg, hit, date_key, llm_text, sub=sub)
     md = os.path.join(date_dir(date_key), f"机会分析_{date_key}.md")
     with open(md, "w", encoding="utf-8") as f:
         f.write(report)

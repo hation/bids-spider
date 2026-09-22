@@ -321,17 +321,20 @@ def query_date_from_es(date_key):
         print(f'[db_date] {date_key} 在 ES 中无数据')
         return 0
     rows = []
+    from crawler.base_crawler import BaseCrawler as _BC
     for h in records:
         src = h.get('_source', {})
         html = src.get('html', '') or ''
+        # ES 中存的是原始 HTML，导出前转纯文本（与爬虫侧 save_tenders_to_excel 一致）
+        html_text = _BC._html_to_text(html)
         rows.append({
             'region': src.get('region', ''),
             'href': src.get('href', ''),
             'title': src.get('title', ''),
             'release_date': src.get('release_date', ''),
-            'html': html,
+            'html': html_text,
             'crawl_date': src.get('crawl_date', ''),
-            'truncated': '是' if len(str(html)) > 32767 else '否',
+            'truncated': '是' if len(html_text) > 32767 else '否',
         })
     df = pd.DataFrame(rows)
     out = os.path.join(date_dir(date_key), f'date_{date_key}.xlsx')

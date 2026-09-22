@@ -136,7 +136,7 @@ def load_llm_config():
 
     deerflow 模式（默认）：LLM_ENABLED / DEERFLOW_CLI / DEERFLOW_GATEWAY / DEERFLOW_TIMEOUT，
     经 deerflowcli 执行（模型可 web_fetch 打开链接核实详情），不再需要 API_BASE/KEY/MODEL。
-    LLM_LIMIT 为「兜底上限」（默认 10，设 0 表示不限）：实际精读条目由 select_for_llm
+    LLM_LIMIT 为「兜底上限」（默认 30，设 0 表示不限）：实际精读条目由 select_for_llm
     自动挑选——直接相关全部精读 + 其余按金额优先补足，无需手动设置具体条数。
     """
     env = _load_env()
@@ -145,9 +145,9 @@ def load_llm_config():
         return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
 
     try:
-        limit = int(float(env.get("LLM_LIMIT", 10) or 10))
+        limit = int(float(env.get("LLM_LIMIT", 30) or 30))
     except (TypeError, ValueError):
-        limit = 10
+        limit = 30
     try:
         detail_len = int(float(env.get("LLM_DETAIL_LEN", 400) or 400))
     except (TypeError, ValueError):

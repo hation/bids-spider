@@ -136,7 +136,7 @@ def load_llm_config():
 
     deerflow 模式（默认）：LLM_ENABLED / DEERFLOW_CLI / DEERFLOW_GATEWAY / DEERFLOW_TIMEOUT，
     经 deerflowcli 执行（模型可 web_fetch 打开链接核实详情），不再需要 API_BASE/KEY/MODEL。
-    LLM_LIMIT 为「兜底上限」（默认 30，设 0 表示不限）：实际精读条目由 select_for_llm
+    LLM_LIMIT 为「兜底上限」（默认 15，设 0 表示不限）：实际精读条目由 select_for_llm
     自动挑选——直接相关全部精读 + 其余按金额优先补足，无需手动设置具体条数。
     """
     env = _load_env()
@@ -145,9 +145,9 @@ def load_llm_config():
         return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
 
     try:
-        limit = int(float(env.get("LLM_LIMIT", 30) or 30))
+        limit = int(float(env.get("LLM_LIMIT", 15) or 15))
     except (TypeError, ValueError):
-        limit = 30
+        limit = 15
     try:
         detail_len = int(float(env.get("LLM_DETAIL_LEN", 400) or 400))
     except (TypeError, ValueError):
@@ -156,12 +156,17 @@ def load_llm_config():
         timeout = int(float(env.get("DEERFLOW_TIMEOUT", 3600) or 3600))
     except (TypeError, ValueError):
         timeout = 3600
+    try:
+        recursion_limit = int(float(env.get("DEERFLOW_RECURSION_LIMIT", 300) or 300))
+    except (TypeError, ValueError):
+        recursion_limit = 300
     return {
         "启用": _bool(env.get("LLM_ENABLED"), False),
         "engine": env.get("LLM_ENGINE", "deerflow").strip().lower() or "deerflow",
         "cli": env.get("DEERFLOW_CLI", "").strip(),
         "gateway": env.get("DEERFLOW_GATEWAY", "").strip() or "http://127.0.0.1:8001",
         "timeout": timeout,
+        "recursion_limit": recursion_limit,
         "api_base": env.get("LLM_API_BASE", "").rstrip("/"),
         "api_key": env.get("LLM_API_KEY", ""),
         "model": env.get("LLM_MODEL", ""),
@@ -250,23 +255,40 @@ def build_llm_validate_section(v):
     return "\n".join(lines)
 
 
+def _extract_thread_id(text):
+    """从 deerflowcli 输出解析会话 ID（新建「会话 ID:」/复用「复用会话:」）。"""
+    m = re.search(r"(?:会话 ID|复用会话)[:：]\s*([0-9a-fA-F-]{36})", text or "")
+    return m.group(1) if m else None
+
+
 def _run_deerflow(task, out_dir, fname, llm, retries=1):
     """通过 deerflowcli 执行精读任务，返回模型产出的报告文本；失败返回 None。
 
     模型在沙箱内按提示词写 /mnt/user-data/outputs/<fname> 并 present_files，
     deerflowcli 会把产出下载到 out_dir/<thread_id>/ 下，此处扫描读取（精确文件名优先，
-    找不到则取最新的「商机分析*.md」，容错模型改名）。长任务可能中途未产出文件，
-    自动重试 retries 次（每次新会话）。
+    找不到则取最新的「商机分析*.md」，容错模型改名）。
+
+    方案A+B：提交任务带 --recursion-limit（长任务避免 LangGraph 递归超限）；
+    首次失败未产出文件时，从输出解析 thread-id，下一次自动用 --thread-id 恢复会话
+    （让模型基于沙箱已写文件继续补齐并交付），而非新建会话重头跑。
     """
     cli = llm.get("cli") or shutil.which("deerflowcli") or "deerflowcli"
     os.makedirs(out_dir, exist_ok=True)
     timeout = llm.get("timeout", 3600)
+    recursion_limit = llm.get("recursion_limit")
+    thread_id = None
     for attempt in range(retries + 1):
         cmd = [cli, "--output-dir", out_dir, "--timeout", str(timeout), "--no-stream"]
+        if recursion_limit:
+            cmd += ["--recursion-limit", str(recursion_limit)]
         gateway = llm.get("gateway") or ""
         if gateway and gateway != "http://127.0.0.1:8001":
             cmd += ["--gateway", gateway]
-        cmd.append(task)
+        if thread_id:
+            cmd += ["--thread-id", thread_id, "继续"]
+            print(f"[deerflow] 恢复会话 {thread_id[:12]}…（第 {attempt + 1} 次，基于沙箱已写文件补齐）")
+        else:
+            cmd.append(task)
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 60)
         except Exception as e:
@@ -285,9 +307,13 @@ def _run_deerflow(task, out_dir, fname, llm, retries=1):
             p = max(hits, key=os.path.getmtime)
             with open(p, encoding="utf-8") as f:
                 return f.read().strip()
-        tail = (proc.stdout or proc.stderr or "").strip()[-600:]
+        out = proc.stdout or ""
+        if not thread_id:
+            thread_id = _extract_thread_id(out)
+        tail = out.strip()[-600:]
         if attempt < retries:
-            print(f"[deerflow] 第 {attempt + 1} 次未产出报告文件（期望 {fname}），重试中。输出：{tail}")
+            how = f"，恢复会话 {thread_id[:12]} 重试" if thread_id else "，重试中"
+            print(f"[deerflow] 第 {attempt + 1} 次未产出报告文件（期望 {fname}）{how}。输出：{tail}")
         else:
             print(f"[deerflow] 未找到产出报告文件（期望 {fname}），deerflowcli 输出：{tail}")
     return None

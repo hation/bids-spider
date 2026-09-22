@@ -1,5 +1,10 @@
 # 按日期抓取招标公告 Implementation Plan
 
+> **⚠️ 历史文档（2026-09-18 开发计划快照）**：本文档记录当时"按日期抓取"功能的开发计划，部分内容已过时，仅作历史参考——
+> - 文中"推送 fork / `git push fork master`"已过时：仓库已于 2026-09-22 脱离 fork 网络转为独立项目，`fork` remote 已删除；
+> - 当前推送方式为 `git push origin master`（默认分支 master），详见 `.trae/rules/project_rules.md` 第 6 节。
+> - 另：扫描模式翻页已改为"深度由目标日期决定"（移除 8 页/100 条硬截断，页数仅 200 页兜底），详见规则文档 2.3/2.6。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 为 bids-spider 新增"按日期抓取"能力——`today` / `by_date` 命令抓取指定日期的招标公告，支持原生日期参数站点精准回溯、其余站点扫描早停，并生成汇总 Excel 与摘要报告。

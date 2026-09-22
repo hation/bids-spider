@@ -4,7 +4,7 @@
 - 商机分析 MD（分级清单 + 金额/紧迫度 + LLM 精读洞察）
 - 全部信息 Excel（含商机详情全文）
 
-输出统一放到：output/商机整理/<查询时间_YYYYMMDD_HHMMSS>/
+输出统一放到：output/商机整理/<查询时间_YYYYMMDD_HHMMSS>_<分析起>_<分析止>/
 
 用法：
     python scripts/query_opportunities.py                    # 默认分析 10 月整月（10-01~10-31）
@@ -252,9 +252,9 @@ def main():
         print("[query] 找不到 config/opportunities.json")
         return
 
-    # 输出目录：output/商机整理/<查询时间_YYYYMMDD_HHMMSS>/
+    # 输出目录：output/商机整理/<查询时间_YYYYMMDD_HHMMSS>_<分析起>_<分析止>/
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = os.path.join(OUTPUT_BASE, f"{stamp}")
+    out_dir = os.path.join(OUTPUT_BASE, f"{stamp}_{start_date}_{end_date}")
     os.makedirs(out_dir, exist_ok=True)
     print(f"[query] 输出目录: {out_dir}")
 

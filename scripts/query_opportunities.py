@@ -146,6 +146,10 @@ def llm_read(cfg, df, window_label, refresh=False):
     if not llm["启用"] or not api_key:
         print("[query] LLM 精读未启用或未配置 api_key，跳过")
         return None
+    # 无相关机会时不精读，避免拿空清单白调 LLM
+    if df is None or df.empty:
+        print("[query] 无相关机会，跳过 LLM 精读")
+        return None
     sub = ao.select_for_llm(df, llm["limit"])
     print(f"[query] LLM 精读 {len(sub)} 条")
     items = []

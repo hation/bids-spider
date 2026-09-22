@@ -191,6 +191,10 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
     if not llm["启用"] or not api_key:
         print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可在 .env 中配置 LLM_ENABLED/LLM_API_KEY）")
         return None
+    # 无相关机会时不精读，避免拿空清单白调 LLM
+    if df is None or df.empty:
+        print("[opportunities] 无相关机会，跳过 LLM 精读")
+        return None
     # 自动挑选精读条目：直接相关全精读 + 其余按金额优先补足，LLM_LIMIT 仅作兜底
     sub = select_for_llm(df, llm["limit"])
     print(f"[opportunities] LLM 精读 {len(sub)} 条 "

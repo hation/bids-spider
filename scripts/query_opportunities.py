@@ -152,11 +152,22 @@ def llm_read(cfg, df, window_label, refresh=False):
         return None
     sub = ao.select_for_llm(df, llm["limit"])
     print(f"[query] LLM 精读 {len(sub)} 条")
+    detail_len = llm.get("detail_len", 400)
     items = []
     for _, r in sub.iterrows():
         amt = r["金额(万元)"]
         amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
-        items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} (金额{amt_s}万元, 投标截止{r['投标截止']}, 链接{r['公告链接']})")
+        bid = r["投标截止"]
+        bid_s = str(bid) if pd.notna(bid) and bid else "未披露"
+        open_s = r["开标时间"]
+        open_s = str(open_s) if pd.notna(open_s) and open_s else "未披露"
+        detail = str(r["商机详情"] or "").replace("\n", " ").strip()
+        detail_s = detail[:detail_len] if detail else "（正文未获取）"
+        items.append(
+            f"- [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
+            f"  金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
+            f"  正文摘要:{detail_s}\n"
+            f"  链接:{r['公告链接']}")
     input_hash = ao._items_hash(items)
 
     # 缓存：命中且 hash 一致则复用

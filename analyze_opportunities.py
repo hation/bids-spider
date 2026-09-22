@@ -144,12 +144,17 @@ def load_llm_config():
         limit = int(float(env.get("LLM_LIMIT", 50) or 50))
     except (TypeError, ValueError):
         limit = 50
+    try:
+        detail_len = int(float(env.get("LLM_DETAIL_LEN", 400) or 400))
+    except (TypeError, ValueError):
+        detail_len = 400
     return {
         "启用": _bool(env.get("LLM_ENABLED"), False),
         "api_base": env.get("LLM_API_BASE", "").rstrip("/"),
         "api_key": env.get("LLM_API_KEY", ""),
         "model": env.get("LLM_MODEL", ""),
         "limit": limit,
+        "detail_len": detail_len,
     }
 
 
@@ -200,10 +205,22 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
     print(f"[opportunities] LLM 精读 {len(sub)} 条 "
           f"(直接相关 {(sub['相关度'] == TIER_DIRECT).sum()} / "
           f"其余 {(sub['相关度'] != TIER_DIRECT).sum()})")
+    detail_len = llm.get("detail_len", 400)
     items = []
     for _, r in sub.iterrows():
-        items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} "
-                     f"(金额{r['金额(万元)'] if pd.notna(r['金额(万元)']) else '未披露'}万元, 链接{r['公告链接']})")
+        amt = r["金额(万元)"]
+        amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
+        bid = r.get("投标截止")
+        bid_s = str(bid) if pd.notna(bid) and bid else "未披露"
+        open_s = r.get("开标时间")
+        open_s = str(open_s) if pd.notna(open_s) and open_s else "未披露"
+        detail = str(r.get("商机详情", "") or "").replace("\n", " ").strip()
+        detail_s = detail[:detail_len] if detail else "（正文未获取）"
+        items.append(
+            f"- [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
+            f"  金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
+            f"  正文摘要:{detail_s}\n"
+            f"  链接:{r['公告链接']}")
     input_hash = _items_hash(items)
 
     # 缓存：命中且 hash 一致则复用

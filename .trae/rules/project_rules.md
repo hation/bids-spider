@@ -100,7 +100,7 @@ echo "ALL REGIONS TODAY DONE"
 - 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/**投标截止/开标时间/获取文件截止/距投标截止(天)**/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + **关键时间节点章节（紧迫度：🔴≤7天立刻处理 / 🟡8-14天抓紧准备 / 🟢>14天从容跟进 / ⛔已过期）** + 大金额 TOP + LLM 洞察）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。
 - LLM 精读：`.env` 中 `LLM_ENABLED=true` 且配置 `LLM_API_KEY` 后，自动挑选精读条目（**直接相关全部 + 其余按「有金额优先、金额降序」补足，清单带 [编号] 供模型引用防串位**），调用大模型精读（火山方舟 deepseek-v4-flash，超时 600s）；`LLM_LIMIT` 仅作兜底上限（默认 30，设 0 不限），正常无需手动改；调用失败自动降级为纯规则引擎，不影响主流程。
-- **LLM 精读结果缓存（ES `llm_reads` 索引）**：精读结果按 `key`（`daily_<date>` / `window_<起>_<止>`）入库，`input_hash` 判断输入清单是否变化——命中且 hash 一致直接复用不调 LLM；数据变化（补爬新增等）自动重读；`--refresh` 强制重读。`today` 第一步不精读（第二步汇总做一次），`today_db`/`db_date`/`summarize`/窗口查询均走缓存，避免重复精读。
+- **LLM 精读结果缓存（ES `llm_reads` 索引）**：精读结果按 `key`（`daily_<date>` / `window_<起>_<止>`）入库，`input_hash` 为**整份精读清单的内容指纹（md5）**。判定规则：**key 存在且 hash 完全一致 → 复用缓存不调 LLM；同一范围内任何一条商机变化（补爬新增/字段更新/参数如 LLM_DETAIL_LEN 变更）→ hash 变 → 自动重读；`--refresh` 无条件强制重读**。注意：改提示词模板不改变 hash（模板不是清单内容），需 `--refresh` 才生效。`today` 第一步不精读（第二步汇总做一次），`today_db`/`db_date`/`summarize`/窗口查询均走缓存，避免重复精读。
 
 ## 6. 提交推送规范
 

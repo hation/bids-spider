@@ -73,7 +73,11 @@ python fast_run.py summarize 2026-09-18
 
 # 单独运行机会分析（today/by_date/summarize/db_date 已自动附带）
 python analyze_opportunities.py 2026-09-21
-python analyze_opportunities.py   # 默认今天
+python analyze_opportunities.py   # 默认今天；加 --refresh 强制重读 LLM 精读
+
+# 窗口期商机查询：按投标截止时间范围 + 业务规则筛选并分析（默认 10 月整月）
+python scripts/query_opportunities.py
+python scripts/query_opportunities.py 2026-10-01 2026-10-31   # 自定义范围；加 --refresh 强制重读
 
 # 爬取单个地区（如北京）
 python fast_run.py beijing
@@ -94,11 +98,13 @@ python fast_run.py summarize 2026-09-18
 
 ## 数据与产物
 
-- **存储**：Elasticsearch 索引 `tenders`，字段 `region / href / title / release_date / crawl_date / html`，按 `href` 幂等去重
+- **存储**：Elasticsearch 索引 `tenders`，字段 `region / href / title / release_date / crawl_date / html`，按 `href` 幂等去重；入库时自动提取 **`amount_wan`（金额，万元）** 与 **`bid_deadline`（投标截止，ISO）** 结构化字段，支持 ES 直接范围查询
+- **精读缓存**：ES 索引 `llm_reads` 存储 LLM 精读结果（key = `daily_<date>` / `window_<起>_<止>`），`input_hash` 为清单内容指纹——清单完全一致才复用，商机有变自动重读，`--refresh` 强制重读
 - **产物按日期归档**：所有产物（汇总 Excel、摘要、洞察报告、图表、机会清单/分析、jsonl）集中存放在 `output/<date>/` 日期子目录
 - **Excel**：`output/<date>/date_<date>.xlsx`（汇总，中文列名：地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
 - **洞察报告**：`output/<date>/需求洞察报告_<date>.md` + `output/<date>/charts/` 图表
-- **机会分析**：`output/<date>/机会清单_<date>.xlsx` + `output/<date>/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机）
+- **机会分析**：`output/<date>/机会清单_<date>.xlsx` + `output/<date>/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机，含投标截止/紧迫度/LLM 洞察）
+- **窗口期查询**：`output/商机整理/<查询时间>_<分析起>_<分析止>/`（MD 分析 + 全字段 Excel，含 LLM 精读）
 - **日志**：loguru 写入 `logs/runtime.log`（每周轮转）；并行批跑日志写 `logs/date_run_<region>.log`（超 7 天自动归档）
 
 ## 支持的地区

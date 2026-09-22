@@ -2,6 +2,8 @@
 
 抓取全国各省政府采购网 / 公共资源交易平台的招标、采购公告信息，清洗后写入 Elasticsearch，并导出 Excel。
 
+> **项目来源**：本项目的代码基础来源于 [broholens/bids-spider](https://github.com/broholens/bids-spider)（抓取招标网站招标信息）。2026-09-22 已脱离原 fork 网络转为独立项目继续开发。此来源标识受项目规则约束，**不可移除**。
+
 ## 功能特性
 
 - **Playwright 无头浏览器抓取**：29 个省级地区站点，内置验证码识别（ddddocr / OCR）、随机延时、反爬对抗

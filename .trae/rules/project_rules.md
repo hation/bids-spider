@@ -107,6 +107,7 @@ echo "ALL REGIONS TODAY DONE"
 - 推送：`git push origin master`。
 - 若本机 git 配置了 socks5 代理（`http.proxy`/`https.proxy`）且代理未运行导致推送失败（报 127.0.0.1 连接失败），可用 `git -c http.proxy= -c https.proxy= push origin master` 临时直连推送。
 - 提交前确认 `.env`、密钥等不入库；ES 凭据已在 `utils/es.py` 硬编码（本地服务），保持现有模式即可。
+- **README 源地址标识不可移除**：`README.md` 顶部必须保留"项目来源"标注（指向 `https://github.com/broholens/bids-spider`）。任何编辑、重构、合并、格式化都不得删除或弱化该标识；每次提交前 `git status` / `git diff` 检查其仍存在。若 README 被重写，须原样恢复该标注。
 
 ## 7. 日常维护
 

@@ -12,7 +12,7 @@
 - **补爬顺带收录**：补抓历史日时，列表页扫到的今日公告一并入库，不丢弃
 - **自动导出 Excel**：中文列名（地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
 - **需求洞察报告**：抓取完自动生成统计图表 + 咨询级 Markdown 报告
-- **个人机会分析**：按 `config/opportunities.json` 业务配置（服务器/IT/AI 关键词）自动筛出重点商机，生成机会清单 Excel + 机会分析报告；可选 LLM 精读深度洞察
+- **个人机会分析**：按 `config/opportunities.json` 业务配置（服务器/IT/AI 关键词）自动筛出重点商机，生成机会清单 Excel + 机会分析报告；可选 LLM 精读深度洞察（精读输出自动编号校验 + 真实项目对照表）
 - **可配置抓取范围**：单地区 / 全部地区顺序 / 多地区并行批跑（`xargs -P 4`）
 - **自动化**：每日 10:00 自动补抓昨日；每日 09:00 自动归档超 7 天旧文件
 
@@ -103,7 +103,7 @@ python fast_run.py summarize 2026-09-18
 - **产物按日期归档**：所有产物（汇总 Excel、摘要、洞察报告、图表、机会清单/分析、jsonl）集中存放在 `output/<date>/` 日期子目录
 - **Excel**：`output/<date>/date_<date>.xlsx`（汇总，中文列名：地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
 - **洞察报告**：`output/<date>/需求洞察报告_<date>.md` + `output/<date>/charts/` 图表
-- **机会分析**：`output/<date>/机会清单_<date>.xlsx` + `output/<date>/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机，含投标截止/紧迫度/LLM 洞察）
+- **机会分析**：`output/<date>/机会清单_<date>.xlsx` + `output/<date>/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机，含投标截止/紧迫度/LLM 洞察 + 编号→真实项目对照表供核验）
 - **窗口期查询**：`output/商机整理/<查询时间>_<分析起>_<分析止>/`（MD 分析 + 全字段 Excel，含 LLM 精读）
 - **日志**：loguru 写入 `logs/runtime.log`（每周轮转）；并行批跑日志写 `logs/date_run_<region>.log`（超 7 天自动归档）
 

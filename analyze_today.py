@@ -81,6 +81,68 @@ def extract_money(html):
             return ('万元', float(m.group(1).replace(',', '').replace('，', '')))
     return (None, None)
 
+# ---------------------------------------------------------------- 关键时间节点提取
+
+# 日期/时间组合：兼容「2026年10月19日 09点00分」「2026-10-13 08:45」「2026/10/13 9:30」
+_DATE_PAT = r'(?:\d{4})[年\-/.]\d{1,2}[月\-/.]\d{1,2}日?'
+_TIME_PAT = r'(?:\d{1,2}[点时:：]\d{1,2}分?|\d{2}:\d{2}|\d{1,2}点)'
+_DT_PAT = rf'{_DATE_PAT}(?:\s*{_TIME_PAT})?'
+
+def _norm_datetime(s):
+    """把「2026年10月19日 09点00分 / 2026-10-13 08:45」归一化为 ISO 'YYYY-MM-DD HH:MM'，失败返回 None。"""
+    s = str(s).strip()
+    m = re.search(_DT_PAT, s)
+    if not m:
+        return None
+    raw = m.group(0)
+    m2 = re.search(r'(\d{4})[年\-/.](\d{1,2})[月\-/.](\d{1,2})日?', raw)
+    if not m2:
+        return None
+    y, mo, d = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+    hm = ''
+    m3 = re.search(r'(\d{1,2})[点时:：](\d{1,2})分?', raw)
+    if m3:
+        hm = f'{int(m3.group(1)):02d}:{int(m3.group(2)):02d}'
+    try:
+        date = f'{y:04d}-{mo:02d}-{d:02d}'
+        return f'{date} {hm}' if hm else date
+    except (ValueError, OverflowError):
+        return None
+
+def extract_timeline(html):
+    """从公告正文提取关键时间节点。
+
+    返回 dict：{'投标截止': iso, '开标': iso, '获取文件截止': iso}（未提取到为 None）。
+    兼容各平台常见表述：
+    - 投标截止：「并于 2026年10月19日 09点00分 前递交投标文件」「递交投标文件截止时间：...」
+    - 开标：「开标时间：...」「提交投标文件截止时间、开标时间和地点」
+    - 获取文件：「获取招标文件」「报名和下载采购文件」后跟随的时间
+    """
+    h = str(html)[:12000]
+    out = {'投标截止': None, '开标': None, '获取文件截止': None}
+
+    # 1) 投标截止：优先匹配「X前递交投标/响应文件」句式（时间后可能夹「（北京时间）」）
+    m = re.search(
+        r'(?:并于|在|至|到)?\s*(' + _DT_PAT + r')\s*(?:[（(][^）)]{0,15}[）)])?\s*(?:前|之前)\s*(?:递交|提交|送达)?(?:投标|响应|报价)?\s*(?:文件)?',
+        h)
+    if m:
+        out['投标截止'] = _norm_datetime(m.group(1))
+    if not out['投标截止']:
+        m = re.search(r'(?:投标|响应|报价)?\s*(?:文件)?\s*(?:递交|提交)?\s*截止\s*时间?[:：]\s*(' + _DT_PAT + r')', h)
+        if m:
+            out['投标截止'] = _norm_datetime(m.group(1))
+
+    # 2) 开标时间
+    m = re.search(r'开标\s*时间?[:：]?\s*(' + _DT_PAT + r')', h)
+    if m:
+        out['开标'] = _norm_datetime(m.group(1))
+
+    # 3) 获取招标文件 / 报名截止
+    m = re.search(r'(?:获取|领取|下载|报名)\s*(?:招标|采购)?\s*(?:文件)?\s*(?:截止)?\s*时间?[:：]?\s*(' + _DT_PAT + r')', h)
+    if m:
+        out['获取文件截止'] = _norm_datetime(m.group(1))
+    return out
+
 # 需求品类（标题 + 正文关键词投票）
 CATS = [
     ('医疗健康', ['医院', '医疗', '卫生院', '医学', '药', '康复', '口腔', '体检', '疾控', '防疫', '中医', '血液', '急救',
@@ -185,6 +247,11 @@ def load_and_featurize(date_key):
         else (r['amount'] / 10000 if r['amt_unit'] == '元' else None), axis=1), errors='coerce')
     df['category'] = df.apply(lambda r: classify_cat(r['title'], r['html']), axis=1)
     df['agent'] = df.apply(lambda r: classify_agent(r['title'], r['html']), axis=1)
+    # 关键时间节点（投标截止 / 开标 / 获取文件截止），ISO 字符串或 None
+    tl = df['html'].apply(extract_timeline)
+    df['投标截止'] = tl.apply(lambda d: d.get('投标截止'))
+    df['开标时间'] = tl.apply(lambda d: d.get('开标'))
+    df['获取文件截止'] = tl.apply(lambda d: d.get('获取文件截止'))
     return df
 
 # ---------------------------------------------------------------- 图表生成
@@ -337,6 +404,31 @@ def build_report(df, date_key, charts):
             f"| {region_name(r['region'])} | {str(r['title'])[:42]} | {r['amount_wan']:,.0f} | {r['category']} |"
             for _, r in amt.nlargest(8, 'amount_wan').iterrows())
 
+    # 投标截止时间节奏（全量统计）
+    from datetime import date as _date, datetime as _dt
+    _today = _date.today()
+    tl_series = df['投标截止'].dropna()
+    n_tl = len(tl_series)
+    tl_rows = ''
+    tl_urgent_rows = ''
+    if n_tl:
+        tl_days = tl_series.apply(
+            lambda v: (_date.fromisoformat(str(v)[:10]) - _today).days if str(v)[:10] else None)
+        bins_tl = [(-10**9, -1), (0, 3), (4, 7), (8, 15), (16, 30), (31, 10**9)]
+        labels_tl = ['已过期', '3天内', '4-7天', '8-15天', '16-30天', '30天以上']
+        cnt_tl = []
+        for (lo, hi), lb in zip(bins_tl, labels_tl):
+            c = int(tl_days.apply(lambda v: pd.notna(v) and lo <= v <= hi).sum())
+            cnt_tl.append((lb, c))
+        tl_rows = '\n'.join(f"| {lb} | {c} | {c / n_tl * 100:.0f}% |" for lb, c in cnt_tl)
+        # 最近 10 条即将到期的（非过期）
+        soon = df.assign(_tl_days=tl_days).dropna(subset=['投标截止', '_tl_days'])
+        soon = soon[soon['_tl_days'] >= 0].sort_values('_tl_days').head(10)
+        if not soon.empty:
+            tl_urgent_rows = '\n'.join(
+                f"| {region_name(r['region'])} | {str(r['title'])[:40]} | {r['投标截止']} | {int(r['_tl_days'])} | {r['category']} |"
+                for _, r in soon.iterrows())
+
     # 热词
     from collections import Counter
     text = ' '.join(df['title'].astype(str))
@@ -453,6 +545,18 @@ def build_report(df, date_key, charts):
 ### 4.3 热词与需求风向
 
 当日标题高频词显示：{word_str} 等构成需求风向的关键信号。"采购意向"类高频词预示大量意向预披露正在转化为未来正式公告；房屋建筑、施工、管网、改造等构成建设类主旋律；智慧监管、数智化、老旧小区宜居改造等项目名反复出现，映射监管数字化与城市更新的持续性机会。
+
+### 4.4 投标截止时间节奏
+
+当日披露投标截止时间的项目 **{n_tl:,} 条**，按距离今天（{_today}）的紧迫度分布如下：
+
+| 距截止 | 项目数 | 占比 |
+|---|---|---|
+{tl_rows}
+
+{'**即将到期 TOP10（未来 10 条最先截止的项目）：**\n\n| 地区 | 项目 | 投标截止 | 剩余天数 | 品类 |\n|---|---|---|---|---|\n' + tl_urgent_rows if tl_urgent_rows else '_当日无仍在投标窗口内的项目（全部已截止或未披露）。_'}
+
+时间节奏提示了市场操作纪律：**大多数项目集中在"8-30 天"的窗口带**，意味着今天看到的商机，投标动作最迟应在一到两周内启动；若您的团队按周做投标计划，应将"截止时间往前推 7 天"作为内部截点，预留标书制作、盖章、保证金缴纳的缓冲。
 
 金额结构告诉我们两个务实结论：第一，**100-500 万甜区占披露项目半数以上**，是大多数投标企业的现实主战场，应在此区间建立快速响应机制而非盲目追大单；第二，**大单机会集中于少数赛道（环卫运营、政务信息化、医疗设备）**，一旦中标将带来长周期的收入与业绩背书。建议供应商按"甜区走量保现金流 + 大单赛道做攻坚保增长"的双轨策略配置资源。
 

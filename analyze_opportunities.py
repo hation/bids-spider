@@ -92,13 +92,18 @@ def screen(df, cfg):
             "匹配关键词": "、".join(hits),
             "金额(万元)": r.get("amount_wan", None),
             "发布日期": r.get("release_date", ""),
+            "投标截止": r.get("投标截止", None),
+            "开标时间": r.get("开标时间", None),
+            "获取文件截止": r.get("获取文件截止", None),
+            "距投标截止(天)": r.get("距投标截止天数", None),
             "商机详情": html,
             "详情截断": r.get("truncated", ""),
         })
     if not rows:
         return pd.DataFrame(columns=["地区", "公告链接", "商机标题", "公告类型",
                                      "相关度", "匹配关键词", "金额(万元)", "发布日期",
-                                     "商机详情", "详情截断"])
+                                     "投标截止", "开标时间", "获取文件截止",
+                                     "距投标截止(天)", "商机详情", "详情截断"])
     return pd.DataFrame(rows)
 
 
@@ -234,6 +239,47 @@ def build_report(cfg, df, date_key, llm_text):
     amt_df = df.dropna(subset=["金额(万元)"])
     big = amt_df.nlargest(5, "金额(万元)") if not amt_df.empty else pd.DataFrame()
 
+    # ---- 时间节点与紧迫度 ----
+    def urgency(days):
+        if days is None or pd.isna(days):
+            return ""
+        if days < 0:
+            return "⛔已过期"
+        if days <= 3:
+            return "🔴紧急"
+        if days <= 7:
+            return "🟡抓紧"
+        return "🟢"
+
+    def tl_table(sub):
+        if sub.empty:
+            return "_（无）_"
+        rows = []
+        for _, r in sub.iterrows():
+            d = r.get("距投标截止(天)") if "距投标截止(天)" in sub.columns else r.get("距投标截止天数")
+            bid = r.get("投标截止")
+            bid_s = str(bid) if pd.notna(bid) and bid else "—"
+            open_s = str(r.get("开标时间")) if pd.notna(r.get("开标时间")) and r.get("开标时间") else "—"
+            ur = urgency(d) or "—"
+            rows.append(f"| {r['地区']} | {str(r['商机标题'])[:45]} | {bid_s} | {ur} | {open_s} |")
+        head = "| 地区 | 商机标题 | 投标截止 | 紧迫度 | 开标时间 |\n|---|---|---|---|---|\n"
+        return head + "\n".join(rows)
+
+    tl_df = df.dropna(subset=["投标截止"]).copy()
+    tl_df["距投标截止(天)"] = pd.to_numeric(
+        tl_df.get("距投标截止(天)", tl_df.get("距投标截止天数")), errors="coerce")
+    urgent = tl_df[tl_df["距投标截止(天)"].apply(lambda v: pd.notna(v) and 0 <= v <= 7)] \
+        .sort_values("距投标截止(天)")
+    urgent_count = len(urgent)
+    urgent_block = ""
+    if urgent_count:
+        rows = []
+        for _, r in urgent.head(10).iterrows():
+            d = int(r["距投标截止(天)"])
+            rows.append(f"- {urgency(d)} **{str(r['商机标题'])[:50]}**（{r['地区']}，"
+                        f"投标截止 {r['投标截止']}，剩 {d} 天）")
+        urgent_block = "**本周需立即跟进的机会：**\n\n" + "\n".join(rows)
+
     llm_section = ""
     if llm_text:
         llm_section = f"""
@@ -260,6 +306,8 @@ def build_report(cfg, df, date_key, llm_text):
 
 机会集中地区：{region_str}。
 
+{urgent_block}
+
 > 说明：仅正文命中（意向线索）可能存在噪声，请以标题命中为主重点跟进。
 
 ## 2. 直接相关机会（重点跟进）
@@ -275,6 +323,18 @@ def build_report(cfg, df, date_key, llm_text):
 {table(df[df["相关度"] == TIER_LEAD])}
 
 {llm_section}
+## 5. 关键时间节点（投标截止 / 开标）
+
+披露了投标截止时间的 **{len(tl_df)} 条**机会中，本周（7 天内）需行动 {urgent_count} 条。紧迫度：🔴=3天内截止（立刻处理）、🟡=7天内（抓紧准备）、🟢=7天以上（从容跟进）、⛔=已过期。
+
+### 5.1 直接相关机会时间节点
+
+{tl_table(df[(df["相关度"] == TIER_DIRECT)])}
+
+### 5.2 相关机会时间节点
+
+{tl_table(df[df["相关度"] == TIER_RELATED])}
+
 ## 6. 大金额机会 TOP5
 
 {('| 地区 | 商机标题 | 金额(万元) | 相关度 |\n|---|---|---|---|\n' + '\n'.join(f"| {r['地区']} | {str(r['商机标题'])[:50]} | {r['金额(万元)']:,.0f} | {r['相关度']} |" for _, r in big.iterrows())) if not big.empty else "_（无披露金额项目）_"}
@@ -293,6 +353,13 @@ def run_opportunities(date_key=None):
     if df is None or df.empty:
         print(f"[opportunities] {date_key} 无数据，跳过机会分析")
         return None
+    # 距投标截止天数（以投标截止日期为准，未披露则 None）
+    if "投标截止" in df.columns:
+        from datetime import date as _date
+        _today = _date.today()
+        df["距投标截止天数"] = df["投标截止"].apply(
+            lambda v: (_date.fromisoformat(str(v)[:10]) - _today).days
+            if pd.notna(v) and str(v)[:10] else None)
     hit = screen(df, cfg)
     print(f"[opportunities] 规则引擎筛出 {len(hit)} 条机会 "
           f"(直接相关 {(hit['相关度'] == TIER_DIRECT).sum()} / "

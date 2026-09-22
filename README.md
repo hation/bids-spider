@@ -12,7 +12,7 @@
 - **补爬顺带收录**：补抓历史日时，列表页扫到的今日公告一并入库，不丢弃
 - **自动导出 Excel**：中文列名（地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
 - **需求洞察报告**：抓取完自动生成统计图表 + 咨询级 Markdown 报告
-- **个人机会分析**：按 `config/opportunities.json` 业务配置（服务器/IT/AI 关键词）自动筛出重点商机，生成机会清单 Excel + 机会分析报告；可选 LLM 精读深度洞察（精读输出自动编号校验 + 真实项目对照表）
+- **个人机会分析**：按 `config/opportunities.json` 业务配置（服务器/IT/AI 关键词）自动筛出重点商机，生成机会清单 Excel + 机会分析报告；可选 LLM 精读深度洞察（deerflow 引擎逐条核实网页 + 编号校验 + 真实项目对照表）
 - **可配置抓取范围**：单地区 / 全部地区顺序 / 多地区并行批跑（`xargs -P 4`）
 - **自动化**：每日 10:00 自动补抓昨日；每日 09:00 自动归档超 7 天旧文件
 
@@ -45,13 +45,13 @@ playwright install chromium
 
 需要本机运行 Elasticsearch 8.x（连接配置见 `utils/es.py`，索引 `tenders` 启动时自动创建）。
 
-### LLM 精读配置（可选）
+### LLM 精读配置（可选，deerflow 引擎）
 
 ```bash
-cp .env.example .env   # 复制配置样例，填入你的 LLM API Key
+cp .env.example .env   # 复制配置样例
 ```
 
-编辑 `.env` 填入 `LLM_API_KEY`（火山方舟 / OpenAI 兼容接口均可）。不配置也能用，只是机会分析不启用 LLM 精读（纯规则引擎）。完整字段说明见 `.env.example`。
+LLM 精读通过本机 **deerflow cli**（Gateway 默认 `http://127.0.0.1:8001`）执行：模型可 `web_fetch` 打开商机链接逐条核实采购单位/预算/截止时间，产出报告写入沙箱并下载到 `output/<date>/deerflow/`。在 `.env` 中设 `LLM_ENABLED=true` 即启用（无需 API Key）；不启用时机会分析仅使用规则引擎。完整字段说明见 `.env.example`。
 
 ## 使用
 

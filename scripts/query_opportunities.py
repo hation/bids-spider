@@ -10,10 +10,8 @@
     python scripts/query_opportunities.py                    # 默认分析 10 月整月（10-01~10-31）
     python scripts/query_opportunities.py 2026-10-01 2026-10-31   # 自定义起止
 """
-import json
 import os
 import sys
-import urllib.request
 from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -135,18 +133,18 @@ def add_urgency(df):
     return df
 
 
-def llm_read(cfg, df, window_label, refresh=False):
-    """对筛选结果调用 LLM 精读（复用 load_llm_config 与提示词模板）。
+def llm_read(cfg, df, window_label, refresh=False, out_dir=None):
+    """对筛选结果调用 LLM 精读（deerflow cli 执行，复用 load_llm_config 与提示词模板）。
 
     与每日机会分析共用 llm_reads 缓存：key = window_<起>_<止>。
     命中且 input_hash 一致 → 复用；数据变化或 refresh=True → 重新精读并更新缓存。
+    out_dir 为 deerflow 产出文件下载目录（缺省用 output/商机整理/ 下新建）。
     """
     llm = ao.load_llm_config()
-    api_key = llm["api_key"]
-    if not llm["启用"] or not api_key:
-        print("[query] LLM 精读未启用或未配置 api_key，跳过")
+    if not llm["启用"]:
+        print("[query] LLM 精读未启用（.env 中 LLM_ENABLED=true 后生效），跳过")
         return None
-    # 无相关机会时不精读，避免拿空清单白调 LLM
+    # 无相关机会时不精读，避免拿空清单白跑
     if df is None or df.empty:
         print("[query] 无相关机会，跳过 LLM 精读")
         return None
@@ -164,10 +162,10 @@ def llm_read(cfg, df, window_label, refresh=False):
         detail = str(r["商机详情"] or "").replace("\n", " ").strip()
         detail_s = detail[:detail_len] if detail else "（正文未获取）"
         items.append(
-            f"[{idx}] [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
-            f"    金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
-            f"    正文摘要:{detail_s}\n"
-            f"    链接:{r['公告链接']}")
+            f"- [{idx}][{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
+            f"  金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
+            f"  正文摘要:{detail_s}\n"
+            f"  链接:{r['公告链接']}")
     input_hash = ao._items_hash(items)
 
     # 缓存：命中且 hash 一致则复用
@@ -186,28 +184,20 @@ def llm_read(cfg, df, window_label, refresh=False):
     system = (prompts.get("system") or "").strip()
     user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
     user_content = user_tpl.format(date_key=window_label, items="\n".join(items))
-    messages = ([{"role": "system", "content": system}] if system else []) + [
-        {"role": "user", "content": user_content}]
-    url = (llm["api_base"] or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
-    body = json.dumps({
-        "model": llm["model"] or "gpt-4o-mini",
-        "messages": messages,
-        "temperature": 0.3,
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        result = data["choices"][0]["message"]["content"].strip()
+    task = f"{system}\n\n{user_content}" if system else user_content
+
+    # deerflowcli 执行：模型写 商机分析_<window_label>.md 到沙箱并 present_files，
+    # 产出下载到 out_dir（缺省 output/商机整理/deerflow_<时间戳>/），读取作为精读结果
+    if out_dir is None:
+        out_dir = os.path.join(OUTPUT_BASE, f"deerflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    fname = f"商机分析_{window_label}.md"
+    result = ao._run_deerflow(task, out_dir, fname, llm)
+    if result:
         es.save_llm_read(cache_key, f"窗口期商机分析 {window_label}", input_hash,
-                         llm.get("model") or "gpt-4o-mini", result)
+                         f"deerflow/{llm.get('cli') or 'deerflowcli'}", result)
         return result
-    except Exception as e:
-        print(f"[query] LLM 精读失败，降级为纯规则引擎: {e}")
-        return None
+    print("[query] deerflow 精读失败，降级为纯规则引擎")
+    return None
 
 
 def build_md(cfg, df, window_label, llm_text, sub=None):
@@ -318,7 +308,8 @@ def main():
     print(f"[query] Excel 已生成: {xlsx}")
 
     # MD：商机分析
-    llm_text = llm_read(cfg, df, window_label, refresh=refresh)
+    llm_text = llm_read(cfg, df, window_label, refresh=refresh,
+                        out_dir=os.path.join(out_dir, "deerflow"))
     sub = ao.select_for_llm(df, ao.load_llm_config()["limit"]) if llm_text else None
     md = build_md(cfg, df, window_label, llm_text, sub=sub)
     md_path = os.path.join(out_dir, f"商机分析_{start_date}_{end_date}.md")

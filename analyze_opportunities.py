@@ -16,8 +16,9 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
-import urllib.request
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -131,9 +132,11 @@ def _load_env():
 
 
 def load_llm_config():
-    """LLM 精读配置统一从 .env 读取：LLM_ENABLED / LLM_API_BASE / LLM_API_KEY / LLM_MODEL / LLM_LIMIT。
+    """LLM 精读配置统一从 .env 读取。
 
-    LLM_LIMIT 为「兜底上限」（默认 50，设 0 表示不限）：实际精读条目由 select_for_llm
+    deerflow 模式（默认）：LLM_ENABLED / DEERFLOW_CLI / DEERFLOW_GATEWAY / DEERFLOW_TIMEOUT，
+    经 deerflowcli 执行（模型可 web_fetch 打开链接核实详情），不再需要 API_BASE/KEY/MODEL。
+    LLM_LIMIT 为「兜底上限」（默认 10，设 0 表示不限）：实际精读条目由 select_for_llm
     自动挑选——直接相关全部精读 + 其余按金额优先补足，无需手动设置具体条数。
     """
     env = _load_env()
@@ -142,15 +145,23 @@ def load_llm_config():
         return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
 
     try:
-        limit = int(float(env.get("LLM_LIMIT", 50) or 50))
+        limit = int(float(env.get("LLM_LIMIT", 10) or 10))
     except (TypeError, ValueError):
-        limit = 50
+        limit = 10
     try:
         detail_len = int(float(env.get("LLM_DETAIL_LEN", 400) or 400))
     except (TypeError, ValueError):
         detail_len = 400
+    try:
+        timeout = int(float(env.get("DEERFLOW_TIMEOUT", 3600) or 3600))
+    except (TypeError, ValueError):
+        timeout = 3600
     return {
         "启用": _bool(env.get("LLM_ENABLED"), False),
+        "engine": env.get("LLM_ENGINE", "deerflow").strip().lower() or "deerflow",
+        "cli": env.get("DEERFLOW_CLI", "").strip(),
+        "gateway": env.get("DEERFLOW_GATEWAY", "").strip() or "http://127.0.0.1:8001",
+        "timeout": timeout,
         "api_base": env.get("LLM_API_BASE", "").rstrip("/"),
         "api_key": env.get("LLM_API_KEY", ""),
         "model": env.get("LLM_MODEL", ""),
@@ -163,16 +174,19 @@ def select_for_llm(df, limit):
     """自动挑选精读条目：直接相关全部 + 其余按「有金额优先、金额降序」补足到 limit。
 
     limit<=0 表示不限（全部精读，一般不推荐，token 成本高）。
+    limit 严格兜底：直接相关数量超过 limit 时，直接相关也按金额优先截断到 limit
+    （deerflow 逐条 web_fetch 核实，超长清单会导致任务无法完成）。
     """
     if limit and limit > 0:
         direct = df[df["相关度"] == TIER_DIRECT]
+        if len(direct) >= limit:
+            d = direct.assign(_has_amt=direct["金额(万元)"].notna()).sort_values(
+                ["_has_amt", "金额(万元)"], ascending=[False, False], na_position="last")
+            return d.head(limit).reset_index(drop=True)
         rest = df[df["相关度"] != TIER_DIRECT].copy()
         rest = rest.assign(_has_amt=rest["金额(万元)"].notna()).sort_values(
             ["_has_amt", "金额(万元)"], ascending=[False, False], na_position="last")
-        budget = limit - len(direct)
-        if budget > 0:
-            return pd.concat([direct, rest.head(budget)], ignore_index=True)
-        return direct.reset_index(drop=True)
+        return pd.concat([direct, rest.head(limit - len(direct))], ignore_index=True)
     return df.reset_index(drop=True)
 
 
@@ -194,7 +208,8 @@ def validate_llm_output(llm_text, sub):
     if not llm_text or sub is None or sub.empty:
         return None
     refs = set()
-    for m in re.finditer(r"\[(\d+)\]", llm_text):
+    # 匹配独立的 [N] 商机引用（后不跟字母数字，排除"项目编号：[230201]JHZB"这类误报）
+    for m in re.finditer(r"\[(\d+)\](?![\w])", llm_text):
         refs.add(int(m.group(1)))
     if not refs:
         return None
@@ -235,22 +250,66 @@ def build_llm_validate_section(v):
     return "\n".join(lines)
 
 
+def _run_deerflow(task, out_dir, fname, llm, retries=1):
+    """通过 deerflowcli 执行精读任务，返回模型产出的报告文本；失败返回 None。
+
+    模型在沙箱内按提示词写 /mnt/user-data/outputs/<fname> 并 present_files，
+    deerflowcli 会把产出下载到 out_dir/<thread_id>/ 下，此处扫描读取（精确文件名优先，
+    找不到则取最新的「商机分析*.md」，容错模型改名）。长任务可能中途未产出文件，
+    自动重试 retries 次（每次新会话）。
+    """
+    cli = llm.get("cli") or shutil.which("deerflowcli") or "deerflowcli"
+    os.makedirs(out_dir, exist_ok=True)
+    timeout = llm.get("timeout", 3600)
+    for attempt in range(retries + 1):
+        cmd = [cli, "--output-dir", out_dir, "--timeout", str(timeout), "--no-stream"]
+        gateway = llm.get("gateway") or ""
+        if gateway and gateway != "http://127.0.0.1:8001":
+            cmd += ["--gateway", gateway]
+        cmd.append(task)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 60)
+        except Exception as e:
+            print(f"[deerflow] 执行失败: {e}")
+            return None
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip()[-300:]
+            print(f"[deerflow] deerflowcli 退出码 {proc.returncode}: {tail}")
+            return None
+        hits = []
+        for root, _, files in os.walk(out_dir):
+            for fn in files:
+                if fn == fname or (fn.endswith(".md") and "商机分析" in fn):
+                    hits.append(os.path.join(root, fn))
+        if hits:
+            p = max(hits, key=os.path.getmtime)
+            with open(p, encoding="utf-8") as f:
+                return f.read().strip()
+        tail = (proc.stdout or proc.stderr or "").strip()[-600:]
+        if attempt < retries:
+            print(f"[deerflow] 第 {attempt + 1} 次未产出报告文件（期望 {fname}），重试中。输出：{tail}")
+        else:
+            print(f"[deerflow] 未找到产出报告文件（期望 {fname}），deerflowcli 输出：{tail}")
+    return None
+
+
 def llm_deep_read(cfg, df, date_key, refresh=False):
-    """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。
+    """对规则引擎筛出的机会调用大模型精读（deerflow cli 执行），返回洞察文本。失败时返回 None 降级。
 
     - 精读结果缓存在 ES llm_reads 索引：key = daily_<date>。
-    - 命中且 input_hash 一致 → 直接复用缓存，不调 LLM。
+    - 命中且 input_hash 一致 → 直接复用缓存，不调 deerflow。
     - 数据变化（hash 不一致）或 refresh=True → 重新精读并更新缓存。
 
     提示词模板从 config/opportunities.json 的 LLM提示词 读取（可自由调整），
-    占位符 {date_key} / {items} 由本函数填充。
+    占位符 {date_key} / {items} 由本函数填充。模型经 deerflowcli 执行，
+    可 web_fetch 打开链接核实详情，最终报告写入沙箱 /mnt/user-data/outputs/ 并由
+    deerflowcli 下载到本地 output/<date>/deerflow/，此处读取作为精读结果。
     """
     llm = load_llm_config()
-    api_key = llm["api_key"]
-    if not llm["启用"] or not api_key:
-        print("[opportunities] LLM 精读未启用或未配置 api_key，跳过（可在 .env 中配置 LLM_ENABLED/LLM_API_KEY）")
+    if not llm["启用"]:
+        print("[opportunities] LLM 精读未启用（.env 中 LLM_ENABLED=true 后生效），跳过")
         return None
-    # 无相关机会时不精读，避免拿空清单白调 LLM
+    # 无相关机会时不精读，避免拿空清单白跑
     if df is None or df.empty:
         print("[opportunities] 无相关机会，跳过 LLM 精读")
         return None
@@ -271,10 +330,10 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
         detail = str(r.get("商机详情", "") or "").replace("\n", " ").strip()
         detail_s = detail[:detail_len] if detail else "（正文未获取）"
         items.append(
-            f"[{idx}] [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
-            f"    金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
-            f"    正文摘要:{detail_s}\n"
-            f"    链接:{r['公告链接']}")
+            f"- [{idx}][{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
+            f"  金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
+            f"  正文摘要:{detail_s}\n"
+            f"  链接:{r['公告链接']}")
     input_hash = _items_hash(items)
 
     # 缓存：命中且 hash 一致则复用
@@ -293,29 +352,20 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
     system = (prompts.get("system") or "").strip()
     user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
     user_content = user_tpl.format(date_key=date_key, items="\n".join(items))
-    messages = ([{"role": "system", "content": system}] if system else []) + [
-        {"role": "user", "content": user_content}]
-    url = (llm["api_base"] or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
-    body = json.dumps({
-        "model": llm["model"] or "gpt-4o-mini",
-        "messages": messages,
-        "temperature": 0.3,
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        result = data["choices"][0]["message"]["content"].strip()
+    task = f"{system}\n\n{user_content}" if system else user_content
+
+    # deerflowcli 执行：模型写 商机分析_<date>.md 到沙箱并 present_files，
+    # 产出下载到本地 output/<date>/deerflow/，读取作为精读结果
+    out_dir = os.path.join(date_dir(date_key), "deerflow")
+    fname = f"商机分析_{date_key}.md"
+    result = _run_deerflow(task, out_dir, fname, llm)
+    if result:
         # 写缓存
         es.save_llm_read(cache_key, f"每日机会分析 {date_key}", input_hash,
-                         llm.get("model") or "gpt-4o-mini", result)
+                         f"deerflow/{llm.get('cli') or 'deerflowcli'}", result)
         return result
-    except Exception as e:
-        print(f"[opportunities] LLM 精读失败，降级为纯规则引擎: {e}")
-        return None
+    print("[opportunities] deerflow 精读失败，降级为纯规则引擎")
+    return None
 
 
 def build_report(cfg, df, date_key, llm_text, sub=None):

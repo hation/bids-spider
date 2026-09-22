@@ -1,5 +1,6 @@
 import os
 import random
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime
 import time
@@ -117,12 +118,19 @@ class BaseCrawler:
 
     @staticmethod
     def _html_to_text(html):
-        """HTML 源码转可读纯文本，用于 Excel 导出"""
+        """HTML 源码转可读纯文本，用于 Excel 导出。
+
+        html2text 转正文后，再兜底剥离混在文本里的残留标签源码（如浙江站点
+        内嵌的 <span id=...>），保证导出的是纯正文。
+        """
         h = html2text.HTML2Text()
         h.ignore_links = True
         h.ignore_images = True
         h.body_width = 0
-        return h.handle(html or '')
+        text = h.handle(html or '')
+        # 兜底清除残留 HTML 标签（<tagname ...> / </tagname> / <!-- -->）
+        text = re.sub(r'<[/!]?[a-zA-Z][^>]*>', '', text)
+        return text
 
     def save_tender_to_es(self, tender):
         logger.info(f"[{self.region}]Save {tender.title} tenders to Elasticsearch.")

@@ -185,13 +185,20 @@ def merge_region_excels(start_date, regions):
     return pd.concat(dfs, ignore_index=True)
 
 
-def run_date_mode(start_date, end_date=None, regions=None, summary_path=None):
-    """顺序跑全部/指定地区按日期抓取，然后生成汇总 Excel + 摘要报告 + 需求洞察报告。"""
+def run_date_mode(start_date, end_date=None, regions=None, summary_path=None, no_summary=False):
+    """顺序跑全部/指定地区按日期抓取，然后生成汇总 Excel + 摘要报告 + 需求洞察报告。
+
+    并行批跑（xargs -P 4）时应传 no_summary=True：只抓取并追加 summary_path（JSONL），
+    不做 merge/export/analyze/cleanup，且保留各地区单地区 Excel，由随后的 summarize 统一汇总，
+    避免多进程互相覆盖汇总文件。
+    """
     end_date = end_date or start_date
     regions = regions or list(CRAWLERS)
     records = []
     for region in regions:
         records.append(run_region_by_date(region, start_date, end_date, summary_path))
+    if no_summary:
+        return records
     merged = merge_region_excels(start_date, regions)
     if merged is not None:
         range_key = start_date if start_date == end_date else f'{start_date}_{end_date}'
@@ -362,6 +369,7 @@ def main():
             rest = args[2:] if end else args[1:]
         regions = None
         summary_path = None
+        no_summary = False
         i = 0
         while i < len(rest):
             if rest[i] == '--regions' and i + 1 < len(rest):
@@ -370,6 +378,9 @@ def main():
             elif rest[i] == '--summary' and i + 1 < len(rest):
                 summary_path = rest[i + 1]
                 i += 2
+            elif rest[i] == '--no-summary':
+                no_summary = True
+                i += 1
             else:
                 i += 1
         # today 两段式：先查库整理今日已有商机（不爬网站，秒出），再增量爬取补新增
@@ -377,7 +388,7 @@ def main():
             print(f'[today] 第一步：从 ES 整理今日已入库商机...')
             query_date_from_es(start)
             print(f'[today] 第二步：增量爬取网站，补上最新发布的公告...')
-        run_date_mode(start, end, regions=regions, summary_path=summary_path)
+        run_date_mode(start, end, regions=regions, summary_path=summary_path, no_summary=no_summary)
         return
 
     if cmd == 'db_date':

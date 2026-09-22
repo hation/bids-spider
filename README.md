@@ -45,6 +45,14 @@ playwright install chromium
 
 需要本机运行 Elasticsearch 8.x（连接配置见 `utils/es.py`，索引 `tenders` 启动时自动创建）。
 
+### LLM 精读配置（可选）
+
+```bash
+cp .env.example .env   # 复制配置样例，填入你的 LLM API Key
+```
+
+编辑 `.env` 填入 `LLM_API_KEY`（火山方舟 / OpenAI 兼容接口均可）。不配置也能用，只是机会分析不启用 LLM 精读（纯规则引擎）。完整字段说明见 `.env.example`。
+
 ## 使用
 
 ```bash

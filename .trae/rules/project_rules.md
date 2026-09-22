@@ -95,7 +95,7 @@ echo "ALL REGIONS TODAY DONE"
 
 - 业务配置：`config/opportunities.json`（业务名称 / 核心关键词 / 次要关键词 / 排除关键词 / 关注地区 / 金额区间 / **LLM提示词**）。**LLM 精读运行参数统一放 `.env`**：`LLM_ENABLED`（true/false）/ `LLM_API_BASE` / `LLM_MODEL` / `LLM_LIMIT`（兜底上限）/ `LLM_API_KEY`（密钥，不入库，已 gitignore）；**提示词模板放 `config/opportunities.json` 的 `LLM提示词`**（system + user 两段，占位符 `{date_key}` / `{items}`，调整后重跑即生效）。
 - 规则引擎：标题命中**排除关键词**（复印纸/物业/食堂…）→ 剔除；标题命中**核心关键词**（服务器/算力/AI/大模型/信创/数据中心…）→ **直接相关**；标题命中**次要关键词**（信息化/系统集成/运维…）→ **相关**；仅正文反复命中核心词 → **意向线索**（弱信号，可能存在噪声，以标题命中为主）。
-- 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/**投标截止/开标时间/获取文件截止/距投标截止(天)**/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + **关键时间节点章节（紧迫度🔴🟡🟢⛔）** + 大金额 TOP + LLM 洞察）。
+- 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/**投标截止/开标时间/获取文件截止/距投标截止(天)**/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + **关键时间节点章节（紧迫度：🔴≤7天立刻处理 / 🟡8-14天抓紧准备 / 🟢>14天从容跟进 / ⛔已过期）** + 大金额 TOP + LLM 洞察）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。
 - LLM 精读：`.env` 中 `LLM_ENABLED=true` 且配置 `LLM_API_KEY` 后，自动挑选精读条目（**直接相关全部 + 其余按「有金额优先、金额降序」补足**），调用大模型精读（火山方舟 deepseek-v4-flash，超时 600s）；`LLM_LIMIT` 仅作兜底上限（默认 50，设 0 不限），正常无需手动改；调用失败自动降级为纯规则引擎，不影响主流程。
 

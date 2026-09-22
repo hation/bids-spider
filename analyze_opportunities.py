@@ -245,11 +245,11 @@ def build_report(cfg, df, date_key, llm_text):
             return ""
         if days < 0:
             return "⛔已过期"
-        if days <= 3:
-            return "🔴紧急"
         if days <= 7:
-            return "🟡抓紧"
-        return "🟢"
+            return "🔴立刻处理"
+        if days <= 14:
+            return "🟡抓紧准备"
+        return "🟢从容跟进"
 
     def tl_table(sub):
         if sub.empty:
@@ -268,7 +268,7 @@ def build_report(cfg, df, date_key, llm_text):
     tl_df = df.dropna(subset=["投标截止"]).copy()
     tl_df["距投标截止(天)"] = pd.to_numeric(
         tl_df.get("距投标截止(天)", tl_df.get("距投标截止天数")), errors="coerce")
-    urgent = tl_df[tl_df["距投标截止(天)"].apply(lambda v: pd.notna(v) and 0 <= v <= 7)] \
+    urgent = tl_df[tl_df["距投标截止(天)"].apply(lambda v: pd.notna(v) and 0 <= v <= 14)] \
         .sort_values("距投标截止(天)")
     urgent_count = len(urgent)
     urgent_block = ""
@@ -278,7 +278,7 @@ def build_report(cfg, df, date_key, llm_text):
             d = int(r["距投标截止(天)"])
             rows.append(f"- {urgency(d)} **{str(r['商机标题'])[:50]}**（{r['地区']}，"
                         f"投标截止 {r['投标截止']}，剩 {d} 天）")
-        urgent_block = "**本周需立即跟进的机会：**\n\n" + "\n".join(rows)
+        urgent_block = "**14 天内需行动的机会（先跟这些）：**\n\n" + "\n".join(rows)
 
     llm_section = ""
     if llm_text:
@@ -325,7 +325,7 @@ def build_report(cfg, df, date_key, llm_text):
 {llm_section}
 ## 5. 关键时间节点（投标截止 / 开标）
 
-披露了投标截止时间的 **{len(tl_df)} 条**机会中，本周（7 天内）需行动 {urgent_count} 条。紧迫度：🔴=3天内截止（立刻处理）、🟡=7天内（抓紧准备）、🟢=7天以上（从容跟进）、⛔=已过期。
+披露了投标截止时间的 **{len(tl_df)} 条**机会中，14 天内需行动 {urgent_count} 条。紧迫度：🔴=7天内截止（立刻处理）、🟡=14天内（抓紧准备）、🟢=14天以上（从容跟进）、⛔=已过期。
 
 ### 5.1 直接相关机会时间节点
 

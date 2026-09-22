@@ -285,11 +285,13 @@ def summarize_command(date_key, end_date=None):
     cleanup_region_excels(start_date)
 
 
-def query_date_from_es(date_key):
+def query_date_from_es(date_key, with_opportunities=True):
     """从 Elasticsearch 按 release_date 查询某天的全部公告，导出统一格式 Excel 并生成洞察报告。
 
     与 by_date（重新爬网站）不同：本命令只查库，不访问任何网站。
     产物：output/<date>/date_<date>.xlsx + output/<date>/需求洞察报告_<date>.md
+    with_opportunities=False 时跳过个人机会分析（today 第一步用：第二步汇总会再做，
+    避免重复精读/重复生成）。
     """
     from utils.es import ESConnection
     es = ESConnection()
@@ -346,12 +348,13 @@ def query_date_from_es(date_key):
         run_analysis(date_key)
     except Exception as e:
         print(f'[db_date] 需求洞察报告生成失败: {e}')
-    # 自动生成个人业务机会分析
-    try:
-        from analyze_opportunities import run_opportunities
-        run_opportunities(date_key)
-    except Exception as e:
-        print(f'[db_date] 机会分析生成失败: {e}')
+    # 自动生成个人业务机会分析（today 第一步跳过，避免第二步汇总重复精读）
+    if with_opportunities:
+        try:
+            from analyze_opportunities import run_opportunities
+            run_opportunities(date_key)
+        except Exception as e:
+            print(f'[db_date] 机会分析生成失败: {e}')
     return len(rows)
 
 
@@ -396,7 +399,8 @@ def main():
         # today 两段式：先查库整理今日已有商机（不爬网站，秒出），再增量爬取补新增
         if cmd == 'today':
             print(f'[today] 第一步：从 ES 整理今日已入库商机...')
-            query_date_from_es(start)
+            # 第一步只查库+洞察报告，跳过机会分析（第二步汇总会再做，避免重复精读）
+            query_date_from_es(start, with_opportunities=False)
             print(f'[today] 第二步：增量爬取网站，补上最新发布的公告...')
         run_date_mode(start, end, regions=regions, summary_path=summary_path, no_summary=no_summary)
         return

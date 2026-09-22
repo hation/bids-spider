@@ -170,8 +170,18 @@ def select_for_llm(df, limit):
     return df.reset_index(drop=True)
 
 
-def llm_deep_read(cfg, df, date_key):
+def _items_hash(items):
+    """输入清单 hash：对条目排序后取 md5，用于判断精读输入是否变化。"""
+    import hashlib
+    return hashlib.md5("\n".join(sorted(items)).encode("utf-8")).hexdigest()
+
+
+def llm_deep_read(cfg, df, date_key, refresh=False):
     """对规则引擎筛出的机会调用大模型精读，返回洞察文本。失败时返回 None 降级。
+
+    - 精读结果缓存在 ES llm_reads 索引：key = daily_<date>。
+    - 命中且 input_hash 一致 → 直接复用缓存，不调 LLM。
+    - 数据变化（hash 不一致）或 refresh=True → 重新精读并更新缓存。
 
     提示词模板从 config/opportunities.json 的 LLM提示词 读取（可自由调整），
     占位符 {date_key} / {items} 由本函数填充。
@@ -190,6 +200,20 @@ def llm_deep_read(cfg, df, date_key):
     for _, r in sub.iterrows():
         items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} "
                      f"(金额{r['金额(万元)'] if pd.notna(r['金额(万元)']) else '未披露'}万元, 链接{r['公告链接']})")
+    input_hash = _items_hash(items)
+
+    # 缓存：命中且 hash 一致则复用
+    from utils.es import ESConnection
+    es = ESConnection()
+    cache_key = f"daily_{date_key}"
+    if not refresh:
+        cached = es.get_llm_read(cache_key)
+        if cached and cached.get("input_hash") == input_hash:
+            print(f"[opportunities] LLM 精读命中缓存（{cache_key}），复用 {cached.get('updated_at')}")
+            return cached.get("result")
+        if cached:
+            print(f"[opportunities] 数据有变化（{cache_key}），重新精读")
+
     prompts = (cfg.get("LLM提示词") or {})
     system = (prompts.get("system") or "").strip()
     user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
@@ -209,7 +233,11 @@ def llm_deep_read(cfg, df, date_key):
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"].strip()
+        result = data["choices"][0]["message"]["content"].strip()
+        # 写缓存
+        es.save_llm_read(cache_key, f"每日机会分析 {date_key}", input_hash,
+                         llm.get("model") or "gpt-4o-mini", result)
+        return result
     except Exception as e:
         print(f"[opportunities] LLM 精读失败，降级为纯规则引擎: {e}")
         return None
@@ -348,8 +376,11 @@ def build_report(cfg, df, date_key, llm_text):
     return report
 
 
-def run_opportunities(date_key=None):
-    """主入口：加载数据 → 规则引擎筛选 → 输出 Excel + MD（可选 LLM 精读）。"""
+def run_opportunities(date_key=None, refresh=False):
+    """主入口：加载数据 → 规则引擎筛选 → 输出 Excel + MD（可选 LLM 精读）。
+
+    refresh=True 时强制重新精读并更新缓存（默认命中缓存则复用）。
+    """
     if not date_key:
         date_key = datetime.now(CN_TZ).strftime("%Y-%m-%d")
     cfg = load_config()
@@ -377,7 +408,7 @@ def run_opportunities(date_key=None):
     hit.to_excel(xlsx, index=False)
     print(f"[opportunities] 机会清单已生成: {xlsx}")
 
-    llm_text = llm_deep_read(cfg, hit, date_key)
+    llm_text = llm_deep_read(cfg, hit, date_key, refresh=refresh)
     report = build_report(cfg, hit, date_key, llm_text)
     md = os.path.join(date_dir(date_key), f"机会分析_{date_key}.md")
     with open(md, "w", encoding="utf-8") as f:
@@ -387,5 +418,7 @@ def run_opportunities(date_key=None):
 
 
 if __name__ == "__main__":
-    arg = sys.argv[1] if len(sys.argv) > 1 else None
-    run_opportunities(arg)
+    args = sys.argv[1:]
+    date_arg = next((a for a in args if not a.startswith("--")), None)
+    refresh = "--refresh" in args
+    run_opportunities(date_arg, refresh=refresh)

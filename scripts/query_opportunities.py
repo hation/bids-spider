@@ -135,8 +135,12 @@ def add_urgency(df):
     return df
 
 
-def llm_read(cfg, df, window_label):
-    """对筛选结果调用 LLM 精读（复用 load_llm_config 与提示词模板）。"""
+def llm_read(cfg, df, window_label, refresh=False):
+    """对筛选结果调用 LLM 精读（复用 load_llm_config 与提示词模板）。
+
+    与每日机会分析共用 llm_reads 缓存：key = window_<起>_<止>。
+    命中且 input_hash 一致 → 复用；数据变化或 refresh=True → 重新精读并更新缓存。
+    """
     llm = ao.load_llm_config()
     api_key = llm["api_key"]
     if not llm["启用"] or not api_key:
@@ -149,6 +153,20 @@ def llm_read(cfg, df, window_label):
         amt = r["金额(万元)"]
         amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
         items.append(f"- [{r['地区']}][{r['相关度']}] {r['商机标题']} (金额{amt_s}万元, 投标截止{r['投标截止']}, 链接{r['公告链接']})")
+    input_hash = ao._items_hash(items)
+
+    # 缓存：命中且 hash 一致则复用
+    from utils.es import ESConnection
+    es = ESConnection()
+    cache_key = f"window_{window_label.replace(' ~ ', '_')}"
+    if not refresh:
+        cached = es.get_llm_read(cache_key)
+        if cached and cached.get("input_hash") == input_hash:
+            print(f"[query] LLM 精读命中缓存（{cache_key}），复用 {cached.get('updated_at')}")
+            return cached.get("result")
+        if cached:
+            print(f"[query] 数据有变化（{cache_key}），重新精读")
+
     prompts = cfg.get("LLM提示词") or {}
     system = (prompts.get("system") or "").strip()
     user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
@@ -168,7 +186,10 @@ def llm_read(cfg, df, window_label):
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"].strip()
+        result = data["choices"][0]["message"]["content"].strip()
+        es.save_llm_read(cache_key, f"窗口期商机分析 {window_label}", input_hash,
+                         llm.get("model") or "gpt-4o-mini", result)
+        return result
     except Exception as e:
         print(f"[query] LLM 精读失败，降级为纯规则引擎: {e}")
         return None
@@ -241,8 +262,10 @@ def build_md(cfg, df, window_label, llm_text):
 
 def main():
     args = sys.argv[1:]
-    if len(args) >= 2:
-        start_date, end_date = args[0], args[1]
+    non_flag = [a for a in args if not a.startswith("--")]
+    refresh = "--refresh" in args
+    if len(non_flag) >= 2:
+        start_date, end_date = non_flag[0], non_flag[1]
     else:
         start_date, end_date = "2026-10-01", "2026-10-31"
     window_label = f"{start_date} ~ {end_date}"
@@ -276,7 +299,7 @@ def main():
     print(f"[query] Excel 已生成: {xlsx}")
 
     # MD：商机分析
-    llm_text = llm_read(cfg, df, window_label)
+    llm_text = llm_read(cfg, df, window_label, refresh=refresh)
     md = build_md(cfg, df, window_label, llm_text)
     md_path = os.path.join(out_dir, f"商机分析_{start_date}_{end_date}.md")
     with open(md_path, "w", encoding="utf-8") as f:

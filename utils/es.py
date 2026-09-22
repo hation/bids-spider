@@ -1,4 +1,5 @@
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from typing import Iterable, Mapping, Optional, Union
 from elasticsearch import Elasticsearch, helpers
 
@@ -9,6 +10,27 @@ superuser_pwd = '7aNJbD0LTxsVLyuRcHSQ'
 host = 'http://127.0.0.1:9200'
 
 DEFAULT_TENDER_INDEX = "tenders"
+DEFAULT_LLM_READS_INDEX = "llm_reads"
+
+# LLM 精读结果缓存索引：key=分析范围标识，input_hash 用于判断输入数据是否变化
+LLM_READS_INDEX_BODY = {
+    "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+    },
+    "mappings": {
+        "dynamic": "false",
+        "properties": {
+            "key": {"type": "keyword"},        # 分析范围标识，如 daily_2026-09-22 / window_2026-10-01_2026-10-31
+            "scope": {"type": "keyword"},      # 人类可读范围描述
+            "input_hash": {"type": "keyword"}, # 输入清单 hash，用于判断数据是否变化
+            "model": {"type": "keyword"},      # 使用的模型
+            "result": {"type": "text", "index": False},  # 精读洞察全文
+            "updated_at": {"type": "date", "format": "yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis"},
+        },
+    },
+}
+
 TENDER_INDEX_BODY = {
     "settings": {
         "number_of_shards": 1,
@@ -134,7 +156,7 @@ class ESConnection:
         except Exception as e:
             logger.error(f"delete data from {index_name} failed: {e}")
             return None
-    
+
     def update_data(self, index_name, id, data):
         """更新数据"""
         try:
@@ -145,7 +167,43 @@ class ESConnection:
         except Exception as e:
             logger.error(f"update data in {index_name} failed: {e}")
             return False
-    
+
+    # ---------------- LLM 精读结果缓存（llm_reads 索引） ----------------
+
+    def get_llm_read(self, key, index_name: Optional[str] = None):
+        """按 key 读取 LLM 精读缓存，未命中返回 None。"""
+        index_name = index_name or DEFAULT_LLM_READS_INDEX
+        if not self.ensure_index(index_name, LLM_READS_INDEX_BODY):
+            return None
+        try:
+            client = self._client()
+            resp = client.get(index=index_name, id=key)
+            return resp.get('_source')
+        except Exception:
+            return None
+
+    def save_llm_read(self, key, scope, input_hash, model, result, index_name: Optional[str] = None):
+        """写入/更新 LLM 精读缓存（以 key 为文档 ID 幂等覆盖）。"""
+        index_name = index_name or DEFAULT_LLM_READS_INDEX
+        if not self.ensure_index(index_name, LLM_READS_INDEX_BODY):
+            return False
+        try:
+            client = self._client()
+            doc = {
+                "key": key,
+                "scope": scope,
+                "input_hash": input_hash,
+                "model": model,
+                "result": result,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            client.index(index=index_name, id=key, document=doc)
+            logger.info(f"save llm read cache {key} successfully.")
+            return True
+        except Exception as e:
+            logger.error(f"save llm read cache {key} failed: {e}")
+            return False
+
     def search_data(self, query, index_name=None):
         """搜索数据"""
         try:

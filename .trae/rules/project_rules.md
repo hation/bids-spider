@@ -24,8 +24,8 @@
 .venv/bin/python fast_run.py by_date 2026-09-18 --regions beijing   # 指定日期+地区（重新爬网站）
 .venv/bin/python fast_run.py db_date 2026-09-17     # 查库历史某天，不爬网站
 .venv/bin/python fast_run.py summarize <date>       # 汇总 + 自动生成洞察报告
-.venv/bin/python analyze_opportunities.py <date>    # 单独重跑个人机会分析（省略日期默认今天）
-.venv/bin/python scripts/query_opportunities.py      # 窗口期商机查询（默认10月整月，可传起止日期）
+.venv/bin/python analyze_opportunities.py <date>    # 单独重跑个人机会分析（省略日期默认今天；加 --refresh 强制重读 LLM 精读）
+.venv/bin/python scripts/query_opportunities.py      # 窗口期商机查询（默认10月整月，可传起止日期；加 --refresh 强制重读）
 ```
 
 跑完自动产出（全部按日期归档在 `output/<date>/` 子目录内）：汇总 Excel `output/<date>/date_<date>.xlsx`、摘要 `output/<date>/summary_<date>.md`、需求洞察报告 `output/<date>/需求洞察报告_<date>.md`、**个人机会清单 `output/<date>/机会清单_<date>.xlsx` + 机会分析 `output/<date>/机会分析_<date>.md`**、图表 `output/<date>/charts/`（均自动附带，无需手动触发）。**窗口期查询**（`scripts/query_opportunities.py`）产物放 `output/商机整理/<查询时间_YYYYMMDD_HHMMSS>_<分析起>_<分析止>/`（MD 分析 + 全字段 Excel，含 LLM 精读）。
@@ -100,6 +100,7 @@ echo "ALL REGIONS TODAY DONE"
 - 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/**投标截止/开标时间/获取文件截止/距投标截止(天)**/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + **关键时间节点章节（紧迫度：🔴≤7天立刻处理 / 🟡8-14天抓紧准备 / 🟢>14天从容跟进 / ⛔已过期）** + 大金额 TOP + LLM 洞察）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。
 - LLM 精读：`.env` 中 `LLM_ENABLED=true` 且配置 `LLM_API_KEY` 后，自动挑选精读条目（**直接相关全部 + 其余按「有金额优先、金额降序」补足**），调用大模型精读（火山方舟 deepseek-v4-flash，超时 600s）；`LLM_LIMIT` 仅作兜底上限（默认 50，设 0 不限），正常无需手动改；调用失败自动降级为纯规则引擎，不影响主流程。
+- **LLM 精读结果缓存（ES `llm_reads` 索引）**：精读结果按 `key`（`daily_<date>` / `window_<起>_<止>`）入库，`input_hash` 判断输入清单是否变化——命中且 hash 一致直接复用不调 LLM；数据变化（补爬新增等）自动重读；`--refresh` 强制重读。`today` 第一步不精读（第二步汇总做一次），`today_db`/`db_date`/`summarize`/窗口查询均走缓存，避免重复精读。
 
 ## 6. 提交推送规范
 

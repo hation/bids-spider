@@ -34,12 +34,13 @@
 ```bash
 mkdir -p logs && rm -f output/date_run_<date>.jsonl
 printf '%s\n' beijing tianjin hebei liaoning jilin neimenggu shanxi jiangsu zhejiang anhui fujian shandong jiangxi hubei hunan guangdong hainan chongqing sichuan guizhou yunnan qinghai ningxia xinjiang guangxi hlj gansu shaanxi henan \
-  | xargs -P 4 -I {} sh -c '.venv/bin/python fast_run.py by_date <date> --regions {} --summary output/date_run_<date>.jsonl >> logs/date_run_{}.log 2>&1'
+  | xargs -P 4 -I {} sh -c '.venv/bin/python fast_run.py by_date <date> --regions {} --summary output/date_run_<date>.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
 echo "ALL REGIONS TODAY DONE"
 ```
 
 要点：
 - `-P 4` 并行 4 路，各地区站点互不冲突；**不要**改动该并行参数为过大值，避免触发站点风控。
+- **必须带 `--no-summary`**：该参数让并行进程只抓取+写 jsonl、不自动 merge/export/cleanup，也不覆盖汇总文件；各地区单地区 Excel 会保留，交给 2.4 的 `summarize` 统一合并。若不带，各进程会互相覆盖汇总 Excel 并删除单地区 Excel，导致汇总只剩最后一个地区。
 - 每个进程写独立日志 `logs/date_run_<region>.log`，结果行追加到 `output/date_run_<date>.jsonl`。
 - 进度检查：`wc -l output/date_run_<date>.jsonl`（应为 29 行）+ `grep -c 'ok,' logs/date_run_*.log`。
 
@@ -75,6 +76,8 @@ echo "ALL REGIONS TODAY DONE"
 
 **补爬顺带收录机制**：`by_date` 补任意历史日时，列表页扫到的**目标日及之后**（含今天/更晚）公告一并入库（`guarded_save` 已放开上界，finally 先入库全部再过滤导出 Excel）。Excel 仍只含目标日，今天的公告只进 ES 供查询。
 
+**翻页深度由日期决定**：扫描模式按日期判断翻页——`guarded_save` 遇早于目标日的公告立即停止（列表倒序，翻过目标日即止），页数仅作防死循环兜底（上限 200 页），已移除固定 8 页 / 累计 100 条的硬截断。因此今日发布很多时仍会继续翻页直到覆盖昨日；无日期站点回退到页数兜底。
+
 ## 3. 需求洞察报告（analyze_today.py）
 
 - 独立脚本：`python analyze_today.py <date>`（省略日期默认今天）。
@@ -86,7 +89,7 @@ echo "ALL REGIONS TODAY DONE"
 
 - 去重：以公告 URL（href）为文档 ID 幂等去重，`exists_urls` 命中即跳过。**kept=0 可能意味着今日公告已入库（去重正常），不代表抓取失败**，需结合日志判断。
 - 金额提取率约 13%（由各平台披露完整度决定），报告中需注明该局限。
-- 已知地区行为：北京今日数据量大时 kept 可能为 0（此前全量已入库）；内蒙古/河南可能返回 no_match（当日无发布）；云南仅首页 10 条（服务端风控，翻页遇 406 自动停止）；上海已封 IP（420 Blacklist）不可用。
+- 已知地区行为：北京今日数据量大时 kept 可能为 0（此前全量已入库）；**内蒙古接口持续返回 500 系统错误（2026-09-18 起，暂不可用，待站点恢复）**；河南可能返回 no_match（当日无发布）；**江苏列表页只显示"访问当天"、江西分页器窗口有限（约 60 条）、云南仅首页 10 条（翻页遇 406 风控）——这三个地区次日补抓看不到昨日，昨日数据依赖当天抓取的顺带收录兜底（数据不丢，但次日补抓无法补足）**；上海已封 IP（420 Blacklist）不可用。
 
 ## 5. 个人机会分析（analyze_opportunities.py）
 

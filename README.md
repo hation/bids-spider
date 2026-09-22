@@ -51,7 +51,7 @@ playwright install chromium
 cp .env.example .env   # 复制配置样例
 ```
 
-LLM 精读通过本机 **deerflow cli**（Gateway 默认 `http://127.0.0.1:8001`）执行：模型可 `web_fetch` 打开商机链接逐条核实采购单位/预算/截止时间，产出报告写入沙箱并下载到 `output/<date>/deerflow/`。在 `.env` 中设 `LLM_ENABLED=true` 即启用（无需 API Key）；不启用时机会分析仅使用规则引擎。完整字段说明见 `.env.example`。
+LLM 精读通过本机 **deerflow cli**（Gateway 默认 `http://127.0.0.1:8001`）执行：模型可 `web_fetch` 打开商机链接逐条核实采购单位/预算/截止时间，产出报告写入沙箱并下载到 `output/<date>/deerflow/`。在 `.env` 中设 `LLM_ENABLED=true` 即启用（无需 API Key）；不启用时机会分析仅使用规则引擎。精读条数由 `LLM_LIMIT` 兜底（默认 15）；长任务自动带 `recursion-limit` 保护，失败时自动恢复会话补齐报告。完整字段说明见 `.env.example`。
 
 ## 使用
 

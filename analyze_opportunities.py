@@ -222,16 +222,6 @@ def build_report(cfg, df, date_key, llm_text):
     tiers = [TIER_DIRECT, TIER_RELATED, TIER_LEAD]
     counts = {t: int((df["相关度"] == t).sum()) for t in tiers}
 
-    def table(sub):
-        if sub.empty:
-            return "_（无）_"
-        rows = []
-        for _, r in sub.iterrows():
-            amt = r["金额(万元)"]
-            amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
-            rows.append(f"| {r['地区']} | {str(r['商机标题'])[:50]} | {r['公告类型']} | {r['匹配关键词']} | {amt_s} |")
-        return "| 地区 | 商机标题 | 类型 | 匹配关键词 | 金额(万元) |\n|---|---|---|---|---|\n" + "\n".join(rows)
-
     region_top = df["地区"].value_counts().head(5)
     region_str = "、".join(f"{k}（{v}）" for k, v in region_top.items())
 
@@ -250,6 +240,22 @@ def build_report(cfg, df, date_key, llm_text):
         if days <= 14:
             return "🟡抓紧准备"
         return "🟢从容跟进"
+
+    def table(sub):
+        """分档机会表：带投标截止与紧迫度，方便直接识别先跟谁。"""
+        if sub.empty:
+            return "_（无）_"
+        rows = []
+        for _, r in sub.iterrows():
+            amt = r["金额(万元)"]
+            amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
+            bid = r.get("投标截止")
+            bid_s = str(bid) if pd.notna(bid) and bid else "—"
+            d = r.get("距投标截止(天)") if "距投标截止(天)" in sub.columns else r.get("距投标截止天数")
+            ur = urgency(d) or "—"
+            rows.append(f"| {r['地区']} | {str(r['商机标题'])[:46]} | {bid_s} | {ur} | {amt_s} |")
+        return ("| 地区 | 商机标题 | 投标截止 | 紧迫度 | 金额(万元) |\n"
+                "|---|---|---|---|---|\n" + "\n".join(rows))
 
     def tl_table(sub):
         if sub.empty:

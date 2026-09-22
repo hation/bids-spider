@@ -25,9 +25,10 @@
 .venv/bin/python fast_run.py db_date 2026-09-17     # 查库历史某天，不爬网站
 .venv/bin/python fast_run.py summarize <date>       # 汇总 + 自动生成洞察报告
 .venv/bin/python analyze_opportunities.py <date>    # 单独重跑个人机会分析（省略日期默认今天）
+.venv/bin/python scripts/query_opportunities.py      # 窗口期商机查询（默认10月整月，可传起止日期）
 ```
 
-跑完自动产出（全部按日期归档在 `output/<date>/` 子目录内）：汇总 Excel `output/<date>/date_<date>.xlsx`、摘要 `output/<date>/summary_<date>.md`、需求洞察报告 `output/<date>/需求洞察报告_<date>.md`、**个人机会清单 `output/<date>/机会清单_<date>.xlsx` + 机会分析 `output/<date>/机会分析_<date>.md`**、图表 `output/<date>/charts/`（均自动附带，无需手动触发）。
+跑完自动产出（全部按日期归档在 `output/<date>/` 子目录内）：汇总 Excel `output/<date>/date_<date>.xlsx`、摘要 `output/<date>/summary_<date>.md`、需求洞察报告 `output/<date>/需求洞察报告_<date>.md`、**个人机会清单 `output/<date>/机会清单_<date>.xlsx` + 机会分析 `output/<date>/机会分析_<date>.md`**、图表 `output/<date>/charts/`（均自动附带，无需手动触发）。**窗口期查询**（`scripts/query_opportunities.py`）产物放 `output/商机整理/<查询时间_YYYYMMDD_HHMMSS>/`（MD 分析 + 全字段 Excel，含 LLM 精读）。
 
 ### 2.3 全量并行批跑（29 地区，日常主流程）
 

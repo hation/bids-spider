@@ -6,7 +6,7 @@
 
 - 本机需运行 Elasticsearch 8.x（`~/software/elasticsearch-8.17.0/bin/elasticsearch -d -p ~/software/elasticsearch.pid`），索引 `tenders` 启动时自动创建。
 - 使用项目虚拟环境执行所有 Python 命令：`.venv/bin/python ...`（**禁止**用系统 python3）。
-- 日志统一写 `logs/`；抓取产物统一写 `output/`；需求洞察报告写 `output/需求洞察报告_<date>.md`，图表写 `output/charts/`；个人机会分析写 `output/机会分析_<date>.md` + `output/机会清单_<date>.xlsx`。
+- 日志统一写 `logs/`；抓取产物统一写 `output/` 且**按日期归档子目录**：`output/<date>/` 下存放当天全部产物（汇总 Excel、摘要、需求洞察报告、图表 `charts/`、机会清单/机会分析、jsonl）。
 - `output/`、`logs/`、`.venv/` 已在 `.gitignore` 中，不提交。
 
 ## 2. 每日抓取标准流程
@@ -27,22 +27,22 @@
 .venv/bin/python analyze_opportunities.py <date>    # 单独重跑个人机会分析（省略日期默认今天）
 ```
 
-跑完自动产出：汇总 Excel `output/date_<date>.xlsx`、摘要 `output/summary_<date>.md`、需求洞察报告 `output/需求洞察报告_<date>.md`、**个人机会清单 `output/机会清单_<date>.xlsx` + 机会分析 `output/机会分析_<date>.md`**（均自动附带，无需手动触发）。
+跑完自动产出（全部按日期归档在 `output/<date>/` 子目录内）：汇总 Excel `output/<date>/date_<date>.xlsx`、摘要 `output/<date>/summary_<date>.md`、需求洞察报告 `output/<date>/需求洞察报告_<date>.md`、**个人机会清单 `output/<date>/机会清单_<date>.xlsx` + 机会分析 `output/<date>/机会分析_<date>.md`**、图表 `output/<date>/charts/`（均自动附带，无需手动触发）。
 
 ### 2.3 全量并行批跑（29 地区，日常主流程）
 
 ```bash
-mkdir -p logs && rm -f output/date_run_<date>.jsonl
+mkdir -p logs && rm -f output/<date>/date_run_<date>.jsonl
 printf '%s\n' beijing tianjin hebei liaoning jilin neimenggu shanxi jiangsu zhejiang anhui fujian shandong jiangxi hubei hunan guangdong hainan chongqing sichuan guizhou yunnan qinghai ningxia xinjiang guangxi hlj gansu shaanxi henan \
-  | xargs -P 4 -I {} sh -c '.venv/bin/python fast_run.py by_date <date> --regions {} --summary output/date_run_<date>.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
+  | xargs -P 4 -I {} sh -c '.venv/bin/python fast_run.py by_date <date> --regions {} --summary output/<date>/date_run_<date>.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
 echo "ALL REGIONS TODAY DONE"
 ```
 
 要点：
 - `-P 4` 并行 4 路，各地区站点互不冲突；**不要**改动该并行参数为过大值，避免触发站点风控。
 - **必须带 `--no-summary`**：该参数让并行进程只抓取+写 jsonl、不自动 merge/export/cleanup，也不覆盖汇总文件；各地区单地区 Excel 会保留，交给 2.4 的 `summarize` 统一合并。若不带，各进程会互相覆盖汇总 Excel 并删除单地区 Excel，导致汇总只剩最后一个地区。
-- 每个进程写独立日志 `logs/date_run_<region>.log`，结果行追加到 `output/date_run_<date>.jsonl`。
-- 进度检查：`wc -l output/date_run_<date>.jsonl`（应为 29 行）+ `grep -c 'ok,' logs/date_run_*.log`。
+- 每个进程写独立日志 `logs/date_run_<region>.log`，结果行追加到 `output/<date>/date_run_<date>.jsonl`（日期子目录内）。
+- 进度检查：`wc -l output/<date>/date_run_<date>.jsonl`（应为 29 行）+ `grep -c 'ok,' logs/date_run_*.log`。
 
 ### 2.4 汇总 + 自动生成洞察报告
 
@@ -52,9 +52,9 @@ echo "ALL REGIONS TODAY DONE"
 .venv/bin/python fast_run.py summarize <date>
 ```
 
-该命令读取 jsonl，合并各地区 Excel 生成 `output/date_<date>.xlsx`，并**自动调用 `analyze_today.py` 生成需求洞察报告、`analyze_opportunities.py` 生成个人机会分析**（均无需手动触发）。
+该命令读取 jsonl，合并各地区 Excel 生成 `output/<date>/date_<date>.xlsx`，并**自动调用 `analyze_today.py` 生成需求洞察报告、`analyze_opportunities.py` 生成个人机会分析**（均无需手动触发，产物都在日期子目录）。
 
-**汇总完成后自动清理**：单地区 Excel（`date_<date>_<region>.xlsx`）会自动删除——数据已合并进汇总且全量在 ES（可随时 `db_date` 重导出），不保留避免 output 膨胀。
+**汇总完成后自动清理**：单地区 Excel（`output/<date>/date_<date>_<region>.xlsx`）会自动删除——数据已合并进汇总且全量在 ES（可随时 `db_date` 重导出），不保留避免 output 膨胀。
 
 ### 2.5 按日期与查库命令
 
@@ -81,9 +81,9 @@ echo "ALL REGIONS TODAY DONE"
 ## 3. 需求洞察报告（analyze_today.py）
 
 - 独立脚本：`python analyze_today.py <date>`（省略日期默认今天）。
-- 逻辑：读取 `output/date_<date>.xlsx` → 特征提取（公告类型 / 需求品类 10 类 / 采购人主体 6 类 / 金额「元|万元」两单位）→ 生成 5 张图表（品类 / 地区 / 类型 / 采购人 / 金额规模）到 `output/charts/<date>_*.png` → 输出 Markdown 报告。
+- 逻辑：读取 `output/<date>/date_<date>.xlsx` → 特征提取（公告类型 / 需求品类 10 类 / 采购人主体 6 类 / 金额「元|万元」两单位）→ 生成 5 张图表（品类 / 地区 / 类型 / 采购人 / 金额规模）到 `output/<date>/charts/<date>_*.png` → 输出 Markdown 报告 `output/<date>/需求洞察报告_<date>.md`。
 - 报告含章节：Abstract / 1.Introduction / 2.需求品类结构 / 3.区域需求版图 / 4.金额规模与重点机会 / 5.Conclusion / 6.References。
-- **图表与报告按日期隔离命名**，多日数据不会互相覆盖。
+- **产物按日期子目录隔离**，多日数据不会互相覆盖。
 
 ## 4. 数据口径说明
 
@@ -95,7 +95,7 @@ echo "ALL REGIONS TODAY DONE"
 
 - 业务配置：`config/opportunities.json`（业务名称 / 核心关键词 / 次要关键词 / 排除关键词 / 关注地区 / 金额区间 / **LLM提示词**）。**LLM 精读运行参数统一放 `.env`**：`LLM_ENABLED`（true/false）/ `LLM_API_BASE` / `LLM_MODEL` / `LLM_LIMIT`（兜底上限）/ `LLM_API_KEY`（密钥，不入库，已 gitignore）；**提示词模板放 `config/opportunities.json` 的 `LLM提示词`**（system + user 两段，占位符 `{date_key}` / `{items}`，调整后重跑即生效）。
 - 规则引擎：标题命中**排除关键词**（复印纸/物业/食堂…）→ 剔除；标题命中**核心关键词**（服务器/算力/AI/大模型/信创/数据中心…）→ **直接相关**；标题命中**次要关键词**（信息化/系统集成/运维…）→ **相关**；仅正文反复命中核心词 → **意向线索**（弱信号，可能存在噪声，以标题命中为主）。
-- 产物：`output/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/商机详情/详情截断）+ `output/机会分析_<date>.md`（分档清单 + 大金额 TOP + LLM 洞察）。
+- 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + 大金额 TOP + LLM 洞察）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。
 - LLM 精读：`.env` 中 `LLM_ENABLED=true` 且配置 `LLM_API_KEY` 后，自动挑选精读条目（**直接相关全部 + 其余按「有金额优先、金额降序」补足**），调用大模型精读（火山方舟 deepseek-v4-flash，超时 600s）；`LLM_LIMIT` 仅作兜底上限（默认 50，设 0 不限），正常无需手动改；调用失败自动降级为纯规则引擎，不影响主流程。
 
@@ -113,6 +113,6 @@ echo "ALL REGIONS TODAY DONE"
 
 - 详情正文用 html2text 转纯文本存 Excel，超长内容标 `truncated=是`（Excel 单格上限 32767 字符）。
 - 验证码站点（黑龙江/甘肃/陕西/河南）已用 ddddocr + 重试打通，勿回退。
-- **output 目录管理**：单地区 Excel 汇总后自动清理；`scripts/archive_output.py` 每日 09:00 归档超 7 天的汇总 Excel/报告/图表/jsonl 到 `output/archive/`。
+- **output 目录管理**：产物按日期归档在 `output/<date>/` 子目录；单地区 Excel 汇总后自动清理；`scripts/archive_output.py` 每日 09:00 归档超 7 天的日期子目录（整目录压缩到 `output/archive/`）与遗留平铺旧文件。
 - **logs 目录管理**：`date_run_*.log`/`crawl_*.log`/`backfill_*.log` 超 7 天自动归档到 `logs/archive/`；`runtime.log` 超 50MB 自动轮转压缩（loguru 已配每周轮转+保留 10 份，双保险）。
 - **补爬顺带收录**：每天 10:00 补抓昨日时，今天的公告会一并入库（不丢弃），用 `today_db` 或 `today` 第一步即可直接查库拿到。

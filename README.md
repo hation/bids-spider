@@ -80,16 +80,17 @@ done
 
 # 按日期并行补抓（xargs -P 4，必须带 --no-summary，汇总交给 summarize 统一合并）
 printf '%s\n' beijing hebei shandong | xargs -P 4 -I {} sh -c \
-  'python fast_run.py by_date 2026-09-18 --regions {} --summary output/date_run_2026-09-18.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
+  'python fast_run.py by_date 2026-09-18 --regions {} --summary output/2026-09-18/date_run_2026-09-18.jsonl --no-summary >> logs/date_run_{}.log 2>&1'
 python fast_run.py summarize 2026-09-18
 ```
 
 ## 数据与产物
 
 - **存储**：Elasticsearch 索引 `tenders`，字段 `region / href / title / release_date / crawl_date / html`，按 `href` 幂等去重
-- **Excel**：`output/date_<date>.xlsx`（汇总，中文列名：地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
-- **洞察报告**：`output/需求洞察报告_<date>.md` + `output/charts/` 图表
-- **机会分析**：`output/机会清单_<date>.xlsx` + `output/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机）
+- **产物按日期归档**：所有产物（汇总 Excel、摘要、洞察报告、图表、机会清单/分析、jsonl）集中存放在 `output/<date>/` 日期子目录
+- **Excel**：`output/<date>/date_<date>.xlsx`（汇总，中文列名：地区/公告链接/商机标题/发布日期/抓取日期/商机详情/详情截断）
+- **洞察报告**：`output/<date>/需求洞察报告_<date>.md` + `output/<date>/charts/` 图表
+- **机会分析**：`output/<date>/机会清单_<date>.xlsx` + `output/<date>/机会分析_<date>.md`（按 `config/opportunities.json` 规则筛出的个人业务商机）
 - **日志**：loguru 写入 `logs/runtime.log`（每周轮转）；并行批跑日志写 `logs/date_run_<region>.log`（超 7 天自动归档）
 
 ## 支持的地区

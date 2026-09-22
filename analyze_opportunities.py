@@ -207,7 +207,7 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
           f"其余 {(sub['相关度'] != TIER_DIRECT).sum()})")
     detail_len = llm.get("detail_len", 400)
     items = []
-    for _, r in sub.iterrows():
+    for idx, (_, r) in enumerate(sub.iterrows(), start=1):
         amt = r["金额(万元)"]
         amt_s = f"{amt:,.0f}" if pd.notna(amt) else "未披露"
         bid = r.get("投标截止")
@@ -217,10 +217,10 @@ def llm_deep_read(cfg, df, date_key, refresh=False):
         detail = str(r.get("商机详情", "") or "").replace("\n", " ").strip()
         detail_s = detail[:detail_len] if detail else "（正文未获取）"
         items.append(
-            f"- [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
-            f"  金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
-            f"  正文摘要:{detail_s}\n"
-            f"  链接:{r['公告链接']}")
+            f"[{idx}] [{r['地区']}][{r['相关度']}] {r['商机标题']}\n"
+            f"    金额:{amt_s}万元 | 投标截止:{bid_s} | 开标:{open_s}\n"
+            f"    正文摘要:{detail_s}\n"
+            f"    链接:{r['公告链接']}")
     input_hash = _items_hash(items)
 
     # 缓存：命中且 hash 一致则复用

@@ -65,15 +65,33 @@ class HeNan(BaseCrawler):
         logger.info(f"[{self.region}]crawl done, new {len(self.tenders)} tenders.")
 
     def _solve_and_submit(self, page):
-        """识别验证码并提交查询，成功（结果列表出现）返回 True"""
+        """识别验证码并提交查询，成功（结果列表出现）返回 True。
+
+        验证码图必须取「页面实际加载的响应体」（监听 getImage 响应）：
+        不能 request.get(src) 重新请求——服务端每次 GET /getImage 会生成新图，
+        与页面当前校验的图错位一拍，导致识别永远提交失败（手动填写能过即此原因）。
+        """
+        import time
+        captcha = {'img': None}
+
+        def on_response(resp):
+            if '/getImage/' in resp.url:
+                try:
+                    captcha['img'] = resp.body()
+                except Exception:
+                    pass
+
+        page.on('response', on_response)
         for attempt in range(8):
-            src = page.locator('#recode').get_attribute('src') or ''
-            if not src.startswith('http'):
-                src = self.base_url + src
-            try:
-                img = page.context.request.get(src).body()
-            except Exception as e:
-                logger.warning(f"[{self.region}]获取验证码图片失败: {e}")
+            # 点击刷新触发 getImage 并等待响应捕获（页面加载时捕获过的旧图不可复用）
+            page.locator('#recode').click()
+            deadline = time.time() + 3
+            captcha['img'] = None
+            while not captcha['img'] and time.time() < deadline:
+                page.wait_for_timeout(100)
+            img = captcha['img']
+            if not img:
+                logger.warning(f"[{self.region}]未捕获到验证码图片（尝试 {attempt + 1}/8）")
                 continue
             code = self.ocr.recognize_bytes(img)
             page.fill('input[name=code]', code)
@@ -85,7 +103,6 @@ class HeNan(BaseCrawler):
                 return True
             except Exception:
                 logger.warning(f"[{self.region}]验证码 {code!r} 未通过（尝试 {attempt + 1}/8）")
-                page.locator('#recode').click()
         return False
 
     @staticmethod
@@ -102,9 +119,19 @@ class HeNan(BaseCrawler):
             if href.startswith('/'):
                 href = 'https://zfcg.henan.gov.cn' + href
             date = ''
-            # 从链接所在行附近找日期文本
+            # 从链接所在行/卡片找日期文本：优先 tr/li 行容器，
+            # 兜底向上最多 4 层找包含日期的容器（兼容 div 卡片等非表格布局）
             try:
-                tr = a.evaluate("el => el.closest('tr') ? el.closest('tr').innerText : ''")
+                tr = a.evaluate("""el => {
+                    const row = el.closest('tr') || el.closest('li');
+                    if (row) return row.innerText || '';
+                    let node = el.parentElement;
+                    for (let i = 0; node && i < 4; i++, node = node.parentElement) {
+                        const t = node.innerText || '';
+                        if (/\\d{4}-\\d{2}-\\d{2}/.test(t)) return t;
+                    }
+                    return '';
+                }""")
             except Exception:
                 tr = ''
             m = re.search(r'(\d{4}-\d{2}-\d{2})', tr)

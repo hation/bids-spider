@@ -299,8 +299,9 @@ def query_date_from_es(date_key, with_opportunities=True):
     if not client:
         print(f'[db_date] ES 连接失败，无法查询')
         return 0
-    # 用 scroll 拉取全部命中（release_date 为 keyword，term 精确匹配）
-    query = {'query': {'term': {'release_date': date_key}}, 'sort': ['_doc']}
+    # 用 scroll 拉取全部命中（release_date 为 keyword；部分站点存完整时间戳
+    # 如 hainan '2026-09-22 22:55:37'，term 精确匹配会漏掉，故用 prefix 兼容两种格式）
+    query = {'query': {'prefix': {'release_date': date_key}}, 'sort': ['_doc']}
     records = []
     try:
         resp = client.search(index='tenders', body=query, scroll='2m', size=1000, _source=True)

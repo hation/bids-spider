@@ -261,6 +261,26 @@ def _extract_thread_id(text):
     return m.group(1) if m else None
 
 
+def _locate_deerflow_cli(llm):
+    """定位 deerflowcli：优先 .env 配置，其次 PATH，最后探测常见安装位置。
+
+    受限终端 PATH 不含 ~/.local/bin 等目录，仅靠 shutil.which 会找不到
+    （导致 LLM 精读自动降级），此处补探测常见路径兜底。
+    """
+    cli = (llm.get("cli") or "").strip() or shutil.which("deerflowcli")
+    if cli:
+        return cli
+    for cand in (
+        os.path.expanduser("~/.local/bin/deerflowcli"),
+        os.path.expanduser("~/bin/deerflowcli"),
+        "/usr/local/bin/deerflowcli",
+        "/opt/homebrew/bin/deerflowcli",
+    ):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return "deerflowcli"
+
+
 def _run_deerflow(task, out_dir, fname, llm, retries=1):
     """通过 deerflowcli 执行精读任务，返回模型产出的报告文本；失败返回 None。
 
@@ -272,7 +292,7 @@ def _run_deerflow(task, out_dir, fname, llm, retries=1):
     首次失败未产出文件时，从输出解析 thread-id，下一次自动用 --thread-id 恢复会话
     （让模型基于沙箱已写文件继续补齐并交付），而非新建会话重头跑。
     """
-    cli = llm.get("cli") or shutil.which("deerflowcli") or "deerflowcli"
+    cli = _locate_deerflow_cli(llm)
     os.makedirs(out_dir, exist_ok=True)
     timeout = llm.get("timeout", 3600)
     recursion_limit = llm.get("recursion_limit")

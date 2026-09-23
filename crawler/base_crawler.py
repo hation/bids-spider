@@ -28,6 +28,10 @@ class _DateBoundaryReached(Exception):
     """扫描模式下已翻过目标日期范围（列表按日期倒序），提前停止翻页。"""
 
 
+class _NoDateStop(Exception):
+    """扫描模式下连续大量公告无日期（站点列表不展示日期），继续翻页无意义，提前停止。"""
+
+
 @dataclass
 class Tender:
     region: str
@@ -214,6 +218,8 @@ class BaseCrawler:
                 self._crawl_by_date(context)
         except _DateBoundaryReached:
             logger.info(f"[{self.region}]已翻过目标日期范围，提前停止翻页")
+        except _NoDateStop:
+            logger.info(f"[{self.region}]列表页大量公告无日期，提前停止翻页")
         finally:
             # 先入库全部（含补爬时顺带收录的今天公告，供今日查询直接复用）
             self.save_tenders_to_es()
@@ -240,6 +246,10 @@ class BaseCrawler:
             d = (tender.release_date or '').strip()[:10]
             if not d:
                 self._date_no_date += 1
+                # 站点列表不展示日期时（如 henan），无日期条目不间断累加，
+                # 继续翻页也永远到不了目标日，提前停止避免白翻 200 页兜底
+                if self._date_no_date >= getattr(self, '_max_no_date_stop', 100):
+                    raise _NoDateStop()
                 return
             if d < self._date_start:  # 列表按日期倒序，遇到更早的即翻过了目标日期
                 raise _DateBoundaryReached()

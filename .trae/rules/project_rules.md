@@ -4,6 +4,7 @@
 
 ## 1. 环境前提
 
+- **会话第一步先修复终端 PATH**（受限终端不含系统目录，curl/ps/grep/date 等直接输入会 `command not found`）：`export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"`。注意 macOS 无 `/bin/tail`、`/bin/printf`，需用 `/usr/bin/tail`、`/usr/bin/printf`（或 zsh 内建）。
 - 本机需运行 Elasticsearch 8.x（`~/software/elasticsearch-8.17.0/bin/elasticsearch -d -p ~/software/elasticsearch.pid`），索引 `tenders` 启动时自动创建。
 - 使用项目虚拟环境执行所有 Python 命令：`.venv/bin/python ...`（**禁止**用系统 python3）。
 - 日志统一写 `logs/`；抓取产物统一写 `output/` 且**按日期归档子目录**：`output/<date>/` 下存放当天全部产物（汇总 Excel、摘要、需求洞察报告、图表 `charts/`、机会清单/机会分析、jsonl）。
@@ -13,8 +14,9 @@
 
 ### 2.1 先检查环境
 
-1. ES 可用：`curl -s -u elastic:7aNJbD0LTxsVLyuRcHSQ "http://localhost:9200/tenders/_count"`（能返回数字即可）。
-2. 确认无残留爬虫进程：`ps aux | grep "fast_run.py" | grep -v grep`，如有先清理。
+1. **先执行 PATH 修复**：`export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"`（见 1. 环境前提，受限终端必须）。
+2. ES 可用：`curl -s -u elastic:7aNJbD0LTxsVLyuRcHSQ "http://localhost:9200/tenders/_count"`（能返回数字即可）。
+3. 确认无残留爬虫进程：`ps aux | grep "fast_run.py" | grep -v grep`，如有先清理。
 
 ### 2.2 命令速查
 
@@ -43,6 +45,7 @@ echo "ALL REGIONS TODAY DONE"
 - `-P 4` 并行 4 路，各地区站点互不冲突；**不要**改动该并行参数为过大值，避免触发站点风控。
 - **必须带 `--no-summary`**：该参数让并行进程只抓取+写 jsonl、不自动 merge/export/cleanup，也不覆盖汇总文件；各地区单地区 Excel 会保留，交给 2.4 的 `summarize` 统一合并。若不带，各进程会互相覆盖汇总 Excel 并删除单地区 Excel，导致汇总只剩最后一个地区。
 - 每个进程写独立日志 `logs/date_run_<region>.log`，结果行追加到 `output/<date>/date_run_<date>.jsonl`（日期子目录内）。
+- **jsonl 路径必须是日期子目录内** `output/<date>/date_run_<date>.jsonl`：`summarize` 只读该路径（fast_run.py `summarize_command`），任何无日期子目录的旧模板（如 `output/date_run_<date>.jsonl`）会让 summarize 读不到 records 直接 return，务必以本文件为准。
 - 进度检查：`wc -l output/<date>/date_run_<date>.jsonl`（应为 29 行）+ `grep -c 'ok,' logs/date_run_*.log`。
 
 ### 2.4 汇总 + 自动生成洞察报告
@@ -90,12 +93,13 @@ echo "ALL REGIONS TODAY DONE"
 
 - 去重：以公告 URL（href）为文档 ID 幂等去重，`exists_urls` 命中即跳过。**kept=0 可能意味着今日公告已入库（去重正常），不代表抓取失败**，需结合日志判断。
 - **入库结构化字段**：除原始 html 外，入库时自动从正文提取 **`amount_wan`（项目金额，万元，double）** 与 **`bid_deadline`（投标截止时间，ISO，keyword）** 两个字段（复用 analyze_today 提取逻辑），支持 ES 直接 range 查询（如"金额≥500万""未来7天截止"）；存量数据用 `scripts/backfill_meta.py` 回填。
+- **`release_date` 存在两种格式**：多数站点存纯日期 `YYYY-MM-DD`；海南/天津等站点存完整时间戳 `YYYY-MM-DD HH:MM:SS`（取自列表接口 webdate 字段）。查库命令（`db_date`/`today_db`）已用 **prefix 前缀匹配**兼容两种格式（term 精确匹配会漏掉带时间戳的数据，约 45%），手工 curl 查 ES 时注意格式差异。
 - 金额提取率约 13%（由各平台披露完整度决定），报告中需注明该局限。
-- 已知地区行为：北京今日数据量大时 kept 可能为 0（此前全量已入库）；**内蒙古接口持续返回 500 系统错误（2026-09-18 起，暂不可用，待站点恢复）**；河南可能返回 no_match（当日无发布）；**江苏列表页只显示"访问当天"、江西分页器窗口有限（约 60 条）、云南仅首页 10 条（翻页遇 406 风控）——这三个地区次日补抓看不到昨日，昨日数据依赖当天抓取的顺带收录兜底（数据不丢，但次日补抓无法补足）**；上海已封 IP（420 Blacklist）不可用。
+- 已知地区行为：北京今日数据量大时 kept 可能为 0（此前全量已入库）；**内蒙古接口持续返回 500 系统错误（2026-09-18 起，暂不可用，待站点恢复）**；河南可能返回 no_match（当日无发布）或 **no_date（结果页改版后日期提取已兼容 tr/li/div 布局，2026-09-23 修复）；河南验证码长期失败根因是 `_solve_and_submit` 用 request.get 重新请求 getImage 拿到新图、与页面校验的图错位一拍（2026-09-23 已修复为监听页面实际加载的 getImage 响应体识别），若仍失败/卡住属站点限速，停掉隔段时间重跑**；**广西详情接口有间歇性点击型人机验证（429 NEED_CAPTCHA），`_get_detail` 已做风控缓解：限速（详情 2-5s、翻页 1-3s 随机间隔）、冷却（429 后 15s 再重试）、熔断（连续 5 条被拦即停止本轮，`_get_detail` 返回 None 表风控/{} 表无正文），参数为 guangxi.py 类属性可调；频繁访问会触发站点 IP 级 403 拦截（今天反复测试触发，冷却数小时后恢复），生产每天一次低频无碍；用户手动访问正常是因真实浏览器会话不触发风控。运维纪律：不要同日对同一地区重复重跑，失败后等几小时再补，漏抓部分靠次日补抓兜底**；**江苏列表页只显示"访问当天"、江西分页器窗口有限（约 60 条）、云南仅首页 10 条（翻页遇 406 风控）——这三个地区次日补抓看不到昨日，昨日数据依赖当天抓取的顺带收录兜底（数据不丢，但次日补抓无法补足）**；上海已封 IP（420 Blacklist）不可用。
 
 ## 5. 个人机会分析（analyze_opportunities.py）
 
-- 业务配置：`config/opportunities.json`（业务名称 / 核心关键词 / 次要关键词 / 排除关键词 / 关注地区 / 金额区间 / **LLM提示词**）。**LLM 精读运行参数统一放 `.env`**：`LLM_ENABLED`（true/false）/ `LLM_LIMIT`（兜底上限）/ `LLM_DETAIL_LEN`（正文摘要字数，默认400，设0不带正文）/ `DEERFLOW_CLI`（可执行文件，缺省从 PATH 找）/ `DEERFLOW_GATEWAY`（缺省 http://127.0.0.1:8001）/ `DEERFLOW_TIMEOUT`（单次任务最长等待秒数，缺省 3600）；**执行引擎为 deerflow cli（本机 Gateway），模型可 web_fetch 打开商机链接逐条核实详情，不再需要 LLM_API_BASE / LLM_API_KEY / LLM_MODEL**（旧字段保留仅为兼容，deerflow 模式下不生效）；**提示词模板放 `config/opportunities.json` 的 `LLM提示词`**（system + user 两段，占位符 `{date_key}` / `{items}`，调整后重跑即生效；当前为 deerflow 三步结构：逐条 web_fetch 核实 → 价值甄别 → 整体判断，报告写入沙箱 `/mnt/user-data/outputs/商机分析_{date_key}.md` 并 present_files 交付）。
+- 业务配置：`config/opportunities.json`（业务名称 / 核心关键词 / 次要关键词 / 排除关键词 / 关注地区 / 金额区间 / **LLM提示词**）。**LLM 精读运行参数统一放 `.env`**：`LLM_ENABLED`（true/false）/ `LLM_LIMIT`（兜底上限）/ `LLM_DETAIL_LEN`（正文摘要字数，默认400，设0不带正文）/ `DEERFLOW_CLI`（可执行文件，**缺省探测顺序：.env → PATH → ~/.local/bin、~/bin、/usr/local/bin、/opt/homebrew/bin**，2026-09-23 起代码自动兜底，受限终端 PATH 不含 ~/.local/bin 也能找到；注意非交互终端不加载 ~/.zshrc 等 shell 配置）/ `DEERFLOW_GATEWAY`（缺省 http://127.0.0.1:8001）/ `DEERFLOW_TIMEOUT`（单次任务最长等待秒数，缺省 3600）；**执行引擎为 deerflow cli（本机 Gateway），模型可 web_fetch 打开商机链接逐条核实详情，不再需要 LLM_API_BASE / LLM_API_KEY / LLM_MODEL**（旧字段保留仅为兼容，deerflow 模式下不生效）；**提示词模板放 `config/opportunities.json` 的 `LLM提示词`**（system + user 两段，占位符 `{date_key}` / `{items}`，调整后重跑即生效；当前为 deerflow 三步结构：逐条 web_fetch 核实 → 价值甄别 → 整体判断，报告写入沙箱 `/mnt/user-data/outputs/商机分析_{date_key}.md` 并 present_files 交付）。
 - 规则引擎：标题命中**排除关键词**（复印纸/物业/食堂…）→ 剔除；标题命中**核心关键词**（服务器/算力/AI/大模型/信创/数据中心…）→ **直接相关**；标题命中**次要关键词**（信息化/系统集成/运维…）→ **相关**；仅正文反复命中核心词 → **意向线索**（弱信号，可能存在噪声，以标题命中为主）。
 - 产物（按日期归档在 `output/<date>/`）：`output/<date>/机会清单_<date>.xlsx`（地区/链接/标题/类型/相关度/匹配词/金额/**投标截止/开标时间/获取文件截止/距投标截止(天)**/商机详情/详情截断）+ `output/<date>/机会分析_<date>.md`（分档清单 + **关键时间节点章节（紧迫度：🔴≤7天立刻处理 / 🟡8-14天抓紧准备 / 🟢>14天从容跟进 / ⛔已过期）** + 大金额 TOP + LLM 洞察 + **编号→真实项目对照表**）。
 - 自动触发：`today` / `by_date` / `summarize` / `db_date` 跑完自动附带；可独立 `python analyze_opportunities.py <date>` 重跑。

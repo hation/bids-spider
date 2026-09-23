@@ -56,18 +56,26 @@ class FuJian(BaseCrawler):
             if first_a.count():
                 prev_first_title = (first_a.get_attribute('title') or first_a.inner_text() or '').strip()
             next_link.click(timeout=10000)
-            try:
-                page.wait_for_function(
-                    """([sel, prev]) => {
-                        const el = document.querySelector(sel);
-                        if (!el) return false;
-                        const t = (el.getAttribute('title') || el.innerText || '').trim();
-                        return !!t && t !== prev;
-                    }""",
-                    arg=['div.list-item a.title', prev_first_title],
-                    timeout=30000,
-                )
-            except Exception:
+            # 等待新页数据渲染；站点偶发慢导致 wait_for_function 超时（30s），
+            # 重试 2 次后再放弃翻页（已收集的 records 仍会处理）
+            loaded = False
+            for _ in range(3):
+                try:
+                    page.wait_for_function(
+                        """([sel, prev]) => {
+                            const el = document.querySelector(sel);
+                            if (!el) return false;
+                            const t = (el.getAttribute('title') || el.innerText || '').trim();
+                            return !!t && t !== prev;
+                        }""",
+                        arg=['div.list-item a.title', prev_first_title],
+                        timeout=30000,
+                    )
+                    loaded = True
+                    break
+                except Exception:
+                    page.wait_for_timeout(2000)
+            if not loaded:
                 break
         logger.info(f"[{self.region}]get {len(records)} records from list page")
         for href, title, date_text in records:

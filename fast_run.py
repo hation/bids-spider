@@ -178,7 +178,16 @@ def export_to_excel(df, path):
 
 
 def merge_region_excels(start_date, regions):
-    """合并各地区 date_<start>_<region>.xlsx 为汇总 Excel（按日期目录归档）"""
+    """合并该日各地区数据为汇总 DataFrame（按日期目录归档）。
+
+    数据源以 ES 为准（权威全量）：单地区 Excel 汇总后会被 cleanup_region_excels
+    清理、补抓后也只含本次新增，直接读 Excel 合并会漏掉之前已入库的数据
+    （重复 summarize / 补抓后重跑场景），故优先从 ES 按 release_date + regions
+    全量导出；ES 不可用时回退读单地区 Excel（原行为）。
+    """
+    rows = _load_region_rows_from_es(start_date, regions)
+    if rows:
+        return pd.DataFrame(rows)
     dfs = []
     region_dir = os.path.join('output', start_date)
     for region in regions:
@@ -191,6 +200,59 @@ def merge_region_excels(start_date, regions):
     if not dfs:
         return None
     return pd.concat(dfs, ignore_index=True)
+
+
+def _load_region_rows_from_es(start_date, regions):
+    """从 ES 按发布日期前缀 + 地区列表查询该日记录，转为统一行字典（html 转纯文本）"""
+    from utils.es import ESConnection
+    from crawler.base_crawler import BaseCrawler as _BC
+    es = ESConnection()
+    client = es._client()
+    if not client:
+        return []
+    query = {
+        'query': {
+            'bool': {
+                'must': [
+                    {'prefix': {'release_date': start_date}},
+                    {'terms': {'region': regions}},
+                ]
+            }
+        },
+        'sort': ['_doc'],
+    }
+    records = []
+    try:
+        resp = client.search(index='tenders', body=query, scroll='2m', size=1000, _source=True)
+        sid = resp['_scroll_id']
+        hits = resp['hits']['hits']
+        records.extend(hits)
+        while hits:
+            resp = client.scroll(scroll_id=sid, scroll='2m')
+            hits = resp['hits']['hits']
+            records.extend(hits)
+        try:
+            client.clear_scroll(scroll_id=sid)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f'[merge] ES 导出失败，回退单地区 Excel: {e}')
+        return []
+    rows = []
+    for h in records:
+        src = h.get('_source', {})
+        html = src.get('html', '') or ''
+        html_text = _BC._html_to_text(html)
+        rows.append({
+            'region': src.get('region', ''),
+            'href': src.get('href', ''),
+            'title': src.get('title', ''),
+            'release_date': src.get('release_date', ''),
+            'html': html_text,
+            'crawl_date': src.get('crawl_date', ''),
+            'truncated': '是' if len(html_text) > 32767 else '否',
+        })
+    return rows
 
 
 def run_date_mode(start_date, end_date=None, regions=None, summary_path=None, no_summary=False):

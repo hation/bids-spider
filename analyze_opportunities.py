@@ -213,8 +213,9 @@ def validate_llm_output(llm_text, sub):
     if not llm_text or sub is None or sub.empty:
         return None
     refs = set()
-    # 匹配独立的 [N] 商机引用（后不跟字母数字，排除"项目编号：[230201]JHZB"这类误报）
-    for m in re.finditer(r"\[(\d+)\](?![\w])", llm_text):
+    # 匹配独立的 [N] 商机引用（后不跟 ASCII 字母数字，排除"项目编号：[230201]JHZB"类误报；
+    # 用显式 ASCII 类而非 \w——Python \w 默认含中文，会漏掉"[31]车辆管理所"这类后接中文的引用）
+    for m in re.finditer(r"\[(\d+)\](?![0-9A-Za-z_])", llm_text):
         refs.add(int(m.group(1)))
     if not refs:
         return None

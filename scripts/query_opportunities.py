@@ -133,12 +133,14 @@ def add_urgency(df):
     return df
 
 
-def llm_read(cfg, df, window_label, refresh=False, out_dir=None):
+def llm_read(cfg, df, window_label, refresh=False, out_dir=None, all_direct=False, chunk_size=15):
     """对筛选结果调用 LLM 精读（deerflow cli 执行，复用 load_llm_config 与提示词模板）。
 
-    与每日机会分析共用 llm_reads 缓存：key = window_<起>_<止>。
+    与每日机会分析共用 llm_reads 缓存：key = window_<起>_<止>（普通模式）或
+    window_all_<起>_<止>（--all 全量分批模式）。
     命中且 input_hash 一致 → 复用；数据变化或 refresh=True → 重新精读并更新缓存。
     out_dir 为 deerflow 产出文件下载目录（缺省用 output/商机整理/ 下新建）。
+    all_direct=True 时对全部直接相关项目分批精读（每批 chunk_size 条，逐条核实后合并汇总）。
     """
     llm = ao.load_llm_config()
     if not llm["启用"]:
@@ -148,8 +150,11 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None):
     if df is None or df.empty:
         print("[query] 无相关机会，跳过 LLM 精读")
         return None
-    sub = ao.select_for_llm(df, llm["limit"])
-    print(f"[query] LLM 精读 {len(sub)} 条")
+    if all_direct:
+        sub = df[df["相关度"] == TIER_DIRECT].reset_index(drop=True)
+    else:
+        sub = ao.select_for_llm(df, llm["limit"])
+    print(f"[query] LLM 精读 {len(sub)} 条" + ("（全量直接相关，分批逐条）" if all_direct else ""))
     detail_len = llm.get("detail_len", 400)
     items = []
     for idx, (_, r) in enumerate(sub.iterrows(), start=1):
@@ -171,7 +176,7 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None):
     # 缓存：命中且 hash 一致则复用
     from utils.es import ESConnection
     es = ESConnection()
-    cache_key = f"window_{window_label.replace(' ~ ', '_')}"
+    cache_key = f"{'window_all' if all_direct else 'window'}_{window_label.replace(' ~ ', '_')}"
     if not refresh:
         cached = es.get_llm_read(cache_key)
         if cached and cached.get("input_hash") == input_hash:
@@ -183,14 +188,40 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None):
     prompts = cfg.get("LLM提示词") or {}
     system = (prompts.get("system") or "").strip()
     user_tpl = prompts.get("user") or "以下是 {date_key} 的候选商机，请识别高价值机会。\n\n{items}"
-    user_content = user_tpl.format(date_key=window_label, items="\n".join(items))
-    task = f"{system}\n\n{user_content}" if system else user_content
-
-    # deerflowcli 执行：模型写 商机分析_<window_label>.md 到沙箱并 present_files，
-    # 产出下载到 out_dir（缺省 output/商机整理/deerflow_<时间戳>/），读取作为精读结果
     if out_dir is None:
         out_dir = os.path.join(OUTPUT_BASE, f"deerflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     fname = f"商机分析_{window_label}.md"
+
+    if all_direct:
+        # 全量分批精读：每批 chunk_size 条，独立子目录防产出文件冲突，逐条核实后合并
+        n_batches = (len(items) + chunk_size - 1) // chunk_size
+        chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+        parts = []
+        for ci, chunk in enumerate(chunks, start=1):
+            start_no = (ci - 1) * chunk_size + 1
+            end_no = min(ci * chunk_size, len(items))
+            note = (f"【本批说明】本窗口共 {len(items)} 条直接相关商机，分 {n_batches} 批逐条核实；"
+                    f"你负责第 {ci}/{n_batches} 批（全局编号 {start_no}-{end_no}）。"
+                    f"请对本批每条逐一打开链接核实并给出分析，不要只挑几条。")
+            user_content = note + "\n\n" + user_tpl.format(date_key=window_label, items="\n".join(chunk))
+            task = f"{system}\n\n{user_content}" if system else user_content
+            print(f"[query] 分批精读 {ci}/{n_batches}（编号 {start_no}-{end_no}）…")
+            part = ao._run_deerflow(task, os.path.join(out_dir, f"batch_{ci}"), fname, llm)
+            if part:
+                parts.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n{part}")
+            else:
+                parts.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n> 本批精读失败（降级：该批详情见机会清单 Excel）。")
+        if parts:
+            result = "# 全量直接相关商机逐条精读汇总\n\n" + "\n\n".join(parts)
+            es.save_llm_read(cache_key, f"窗口期全量精读 {window_label}", input_hash,
+                             "deerflow/all", result)
+            return result
+        print("[query] deerflow 全量分批精读全部失败，降级为纯规则引擎")
+        return None
+
+    # 普通单批执行
+    user_content = user_tpl.format(date_key=window_label, items="\n".join(items))
+    task = f"{system}\n\n{user_content}" if system else user_content
     result = ao._run_deerflow(task, out_dir, fname, llm)
     if result:
         es.save_llm_read(cache_key, f"窗口期商机分析 {window_label}", input_hash,
@@ -307,10 +338,14 @@ def main():
     df.to_excel(xlsx, index=False)
     print(f"[query] Excel 已生成: {xlsx}")
 
-    # MD：商机分析
+    # MD：商机分析（--all 时全量分批精读直接相关）
+    all_direct = "--all" in sys.argv
     llm_text = llm_read(cfg, df, window_label, refresh=refresh,
-                        out_dir=os.path.join(out_dir, "deerflow"))
-    sub = ao.select_for_llm(df, ao.load_llm_config()["limit"]) if llm_text else None
+                        out_dir=os.path.join(out_dir, "deerflow"), all_direct=all_direct)
+    if all_direct:
+        sub = df[df["相关度"] == TIER_DIRECT].reset_index(drop=True) if llm_text else None
+    else:
+        sub = ao.select_for_llm(df, ao.load_llm_config()["limit"]) if llm_text else None
     md = build_md(cfg, df, window_label, llm_text, sub=sub)
     md_path = os.path.join(out_dir, f"商机分析_{start_date}_{end_date}.md")
     with open(md_path, "w", encoding="utf-8") as f:

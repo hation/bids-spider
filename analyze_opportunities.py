@@ -136,7 +136,7 @@ def load_llm_config():
 
     deerflow 模式（默认）：LLM_ENABLED / DEERFLOW_CLI / DEERFLOW_GATEWAY / DEERFLOW_TIMEOUT，
     经 deerflowcli 执行（模型可 web_fetch 打开链接核实详情），不再需要 API_BASE/KEY/MODEL。
-    LLM_LIMIT 为「兜底上限」（默认 15，设 0 表示不限）：实际精读条目由 select_for_llm
+    LLM_LIMIT 为「兜底上限」（默认 30，设 0 表示不限）：实际精读条目由 select_for_llm
     自动挑选——直接相关全部精读 + 其余按金额优先补足，无需手动设置具体条数。
     """
     env = _load_env()
@@ -145,9 +145,9 @@ def load_llm_config():
         return str(v).strip().lower() in ("1", "true", "yes", "on") if v not in (None, "") else default
 
     try:
-        limit = int(float(env.get("LLM_LIMIT", 15) or 15))
+        limit = int(float(env.get("LLM_LIMIT", 30) or 30))
     except (TypeError, ValueError):
-        limit = 15
+        limit = 30
     try:
         detail_len = int(float(env.get("LLM_DETAIL_LEN", 400) or 400))
     except (TypeError, ValueError):
@@ -475,12 +475,14 @@ def build_report(cfg, df, date_key, llm_text, sub=None):
         return head + "\n".join(rows)
 
     tl_df = df.dropna(subset=["投标截止"]).copy()
-    tl_df["距投标截止(天)"] = pd.to_numeric(
-        tl_df.get("距投标截止(天)", tl_df.get("距投标截止天数")), errors="coerce")
-    urgent = tl_df[tl_df["距投标截止(天)"].apply(lambda v: pd.notna(v) and 0 <= v <= 14)] \
-        .sort_values("距投标截止(天)")
-    urgent_count = len(urgent)
+    urgent_count = 0
     urgent_block = ""
+    if not tl_df.empty:
+        tl_df["距投标截止(天)"] = pd.to_numeric(
+            tl_df.get("距投标截止(天)", tl_df.get("距投标截止天数")), errors="coerce")
+        urgent = tl_df[tl_df["距投标截止(天)"].apply(lambda v: pd.notna(v) and 0 <= v <= 14)] \
+            .sort_values("距投标截止(天)")
+        urgent_count = len(urgent)
     if urgent_count:
         rows = []
         for _, r in urgent.head(10).iterrows():
@@ -574,9 +576,13 @@ def run_opportunities(date_key=None, refresh=False):
     if "投标截止" in df.columns:
         from datetime import date as _date
         _today = _date.today()
-        df["距投标截止天数"] = df["投标截止"].apply(
-            lambda v: (_date.fromisoformat(str(v)[:10]) - _today).days
-            if pd.notna(v) and str(v)[:10] else None)
+        def _deadline_days(v):
+            try:
+                return (_date.fromisoformat(str(v)[:10]) - _today).days \
+                    if pd.notna(v) and str(v)[:10] else None
+            except ValueError:
+                return None
+        df["距投标截止天数"] = df["投标截止"].apply(_deadline_days)
     hit = screen(df, cfg)
     print(f"[opportunities] 规则引擎筛出 {len(hit)} 条机会 "
           f"(直接相关 {(hit['相关度'] == TIER_DIRECT).sum()} / "

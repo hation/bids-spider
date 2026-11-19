@@ -41,12 +41,22 @@ TENDER_INDEX_BODY = {
         "properties": {
             "region": {"type": "keyword"},
             "href": {"type": "keyword"},
-            "title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+            "title": {
+                "type": "text",
+                "analyzer": "ik_max_word",
+                "search_analyzer": "ik_smart",
+                "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
+            },
             "release_date": {"type": "keyword"},
             "crawl_date": {"type": "date", "format": "yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis"},
             "amount_wan": {"type": "double"},              # 项目金额（万元）
             "bid_deadline": {"type": "keyword"},           # 投标截止时间（ISO）
-            "html": {"type": "text", "index": False},
+            "html": {
+                "type": "text",
+                "index": True,                                # 正文可全文搜索
+                "analyzer": "ik_max_word",                    # IK 中文分词（需装 elasticsearch-analysis-ik 插件）
+                "search_analyzer": "ik_smart",
+            },
         },
     },
 }

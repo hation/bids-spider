@@ -140,7 +140,9 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None, all_direct=Fals
     window_all_<起>_<止>（--all 全量分批模式）。
     命中且 input_hash 一致 → 复用；数据变化或 refresh=True → 重新精读并更新缓存。
     out_dir 为 deerflow 产出文件下载目录（缺省用 output/商机整理/ 下新建）。
-    all_direct=True 时对全部直接相关项目分批精读（每批 chunk_size 条，逐条核实后合并汇总）。
+    all_direct=True 时对全部直接相关项目精读；**清单超过 chunk_size（默认 15）条时
+    自动分批**（每批 chunk_size 条、独立子目录防冲突、逐条核实后合并），避免单任务
+    因条目过多触发递归/输出截断失败（如 30 条拆 2 批×15）。
     """
     llm = ao.load_llm_config()
     if not llm["启用"]:
@@ -154,7 +156,7 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None, all_direct=Fals
         sub = df[df["相关度"] == TIER_DIRECT].reset_index(drop=True)
     else:
         sub = ao.select_for_llm(df, llm["limit"])
-    print(f"[query] LLM 精读 {len(sub)} 条" + ("（全量直接相关，分批逐条）" if all_direct else ""))
+    print(f"[query] LLM 精读 {len(sub)} 条" + ("（全量直接相关，分批逐条）" if all_direct else ""), flush=True)
     detail_len = llm.get("detail_len", 400)
     items = []
     for idx, (_, r) in enumerate(sub.iterrows(), start=1):
@@ -180,10 +182,10 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None, all_direct=Fals
     if not refresh:
         cached = es.get_llm_read(cache_key)
         if cached and cached.get("input_hash") == input_hash:
-            print(f"[query] LLM 精读命中缓存（{cache_key}），复用 {cached.get('updated_at')}")
+            print(f"[query] LLM 精读命中缓存（{cache_key}），复用 {cached.get('updated_at')}", flush=True)
             return cached.get("result")
         if cached:
-            print(f"[query] 数据有变化（{cache_key}），重新精读")
+            print(f"[query] 数据有变化（{cache_key}），重新精读", flush=True)
 
     prompts = cfg.get("LLM提示词") or {}
     system = (prompts.get("system") or "").strip()
@@ -192,31 +194,58 @@ def llm_read(cfg, df, window_label, refresh=False, out_dir=None, all_direct=Fals
         out_dir = os.path.join(OUTPUT_BASE, f"deerflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     fname = f"商机分析_{window_label}.md"
 
-    if all_direct:
-        # 全量分批精读：每批 chunk_size 条，独立子目录防产出文件冲突，逐条核实后合并
+    if len(items) > chunk_size:
+        # 自动分批精读：每批 chunk_size 条，独立子目录防产出文件冲突，逐条核实后合并。
+        # 批间并发执行（默认 2 路，Gateway 已验证支持真并发），失败批独立降级不影响其他批。
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         n_batches = (len(items) + chunk_size - 1) // chunk_size
         chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
-        parts = []
-        for ci, chunk in enumerate(chunks, start=1):
+
+        def run_batch(ci, chunk):
             start_no = (ci - 1) * chunk_size + 1
             end_no = min(ci * chunk_size, len(items))
-            note = (f"【本批说明】本窗口共 {len(items)} 条直接相关商机，分 {n_batches} 批逐条核实；"
+            # 批级续跑：批 key 存在且批 hash 一致 → 复用该批，不重跑（清单仅个别条目
+            # 变化/中途失败重跑时，未变化的批直接跳过，避免整份重读浪费已完成批次）
+            batch_key = f"{cache_key}_b{ci}"
+            batch_hash = ao._items_hash(chunk)
+            if not refresh:
+                bc = es.get_llm_read(batch_key)
+                if bc and bc.get("input_hash") == batch_hash:
+                    print(f"[query] 批次 {ci}/{n_batches} 命中批缓存，复用（编号 {start_no}-{end_no}）", flush=True)
+                    return ci, bc.get("result")
+            note = (f"【本批说明】本窗口共 {len(items)} 条候选商机，分 {n_batches} 批逐条核实；"
                     f"你负责第 {ci}/{n_batches} 批（全局编号 {start_no}-{end_no}）。"
                     f"请对本批每条逐一打开链接核实并给出分析，不要只挑几条。")
             user_content = note + "\n\n" + user_tpl.format(date_key=window_label, items="\n".join(chunk))
             task = f"{system}\n\n{user_content}" if system else user_content
-            print(f"[query] 分批精读 {ci}/{n_batches}（编号 {start_no}-{end_no}）…")
+            print(f"[query] 分批精读 {ci}/{n_batches}（编号 {start_no}-{end_no}）…", flush=True)
             part = ao._run_deerflow(task, os.path.join(out_dir, f"batch_{ci}"), fname, llm)
             if part:
-                parts.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n{part}")
+                es.save_llm_read(batch_key, f"窗口期分批精读-批{ci} {window_label}", batch_hash,
+                                 "deerflow/chunked", part)
+            return ci, part
+
+        parts = {}
+        with ThreadPoolExecutor(max_workers=min(n_batches, 2)) as ex:
+            futs = {ex.submit(run_batch, ci, chunk): ci for ci, chunk in enumerate(chunks, start=1)}
+            for fut in as_completed(futs):
+                ci, part = fut.result()
+                parts[ci] = part
+        merged = []
+        for ci in range(1, n_batches + 1):
+            start_no = (ci - 1) * chunk_size + 1
+            end_no = min(ci * chunk_size, len(items))
+            part = parts.get(ci)
+            if part:
+                merged.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n{part}")
             else:
-                parts.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n> 本批精读失败（降级：该批详情见机会清单 Excel）。")
-        if parts:
-            result = "# 全量直接相关商机逐条精读汇总\n\n" + "\n\n".join(parts)
-            es.save_llm_read(cache_key, f"窗口期全量精读 {window_label}", input_hash,
-                             "deerflow/all", result)
+                merged.append(f"## 第 {ci}/{n_batches} 批（编号 {start_no}-{end_no}）\n\n> 本批精读失败（降级：该批详情见机会清单 Excel）。")
+        if merged:
+            result = "# 候选商机逐条精读汇总\n\n" + "\n\n".join(merged)
+            es.save_llm_read(cache_key, f"窗口期分批精读 {window_label}", input_hash,
+                             "deerflow/chunked", result)
             return result
-        print("[query] deerflow 全量分批精读全部失败，降级为纯规则引擎")
+        print("[query] deerflow 分批精读全部失败，降级为纯规则引擎")
         return None
 
     # 普通单批执行
@@ -319,7 +348,7 @@ def main():
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = os.path.join(OUTPUT_BASE, f"{stamp}_{start_date}_{end_date}")
     os.makedirs(out_dir, exist_ok=True)
-    print(f"[query] 输出目录: {out_dir}")
+    print(f"[query] 输出目录: {out_dir}", flush=True)
 
     docs = load_window_tenders(start_date, end_date)
     print(f"[query] 窗口期({window_label}) 公告: {len(docs)} 条")
@@ -350,7 +379,7 @@ def main():
     md_path = os.path.join(out_dir, f"商机分析_{start_date}_{end_date}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md)
-    print(f"[query] MD 已生成: {md_path}")
+    print(f"[query] MD 已生成: {md_path}", flush=True)
 
 
 if __name__ == "__main__":

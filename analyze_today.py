@@ -104,6 +104,7 @@ def _norm_datetime(s):
     if m3:
         hm = f'{int(m3.group(1)):02d}:{int(m3.group(2)):02d}'
     try:
+        datetime(y, mo, d)  # 校验真实日期，非法日期（如 2026-13-40、2月30日）返回 None
         date = f'{y:04d}-{mo:02d}-{d:02d}'
         return f'{date} {hm}' if hm else date
     except (ValueError, OverflowError):
@@ -412,8 +413,12 @@ def build_report(df, date_key, charts):
     tl_rows = ''
     tl_urgent_rows = ''
     if n_tl:
-        tl_days = tl_series.apply(
-            lambda v: (_date.fromisoformat(str(v)[:10]) - _today).days if str(v)[:10] else None)
+        def _deadline_days(v):
+            try:
+                return (_date.fromisoformat(str(v)[:10]) - _today).days if str(v)[:10] else None
+            except ValueError:
+                return None
+        tl_days = tl_series.apply(_deadline_days)
         bins_tl = [(-10**9, -1), (0, 7), (8, 14), (15, 30), (31, 10**9)]
         labels_tl = ['已过期', '7天内（立刻处理）', '8-14天（抓紧准备）', '15-30天', '30天以上（从容跟进）']
         cnt_tl = []

@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 
 import pandas as pd
@@ -282,6 +283,25 @@ def _locate_deerflow_cli(llm):
     return "deerflowcli"
 
 
+def _deerflow_error_hint(text):
+    """根据 deerflowcli 输出分类失败原因，返回可执行的提示文案；无法归类返回 None。
+
+    覆盖本次试用踩过的坑：方舟 API key 过期/无效时 deerflowcli 返回 401 类错误，
+    脚本之前只打印"退出码 1"无法定位，需人工查 Gateway 日志。此处直接给出修复指引。
+    """
+    t = (text or "").lower()
+    if not t:
+        return None
+    if re.search(r"(api[ -]?key|unauthorized|auth[^a-z]*fail|401|403|invalid[ _-]?credential|expired|authentication)", t):
+        return ("模型 API Key 无效或已过期：请更新 deer-flow/.env 的 VOLCENGINE_API_KEY，"
+                "并执行 launchctl kickstart -k gui/$UID/com.deerflow.dev 重启 Gateway 后重跑")
+    if re.search(r"(rate[ _-]?limit|429|too many|quota|insufficient[ _-]?quota|billing)", t):
+        return "模型额度/限流不足：稍后重试或检查方舟账户余额"
+    if re.search(r"(connection|refused|timeout|unreachable|econnreset|gateway)", t):
+        return "deerflow Gateway 不可达：请检查 Gateway 是否运行（curl http://127.0.0.1:8001/health）"
+    return None
+
+
 def _run_deerflow(task, out_dir, fname, llm, retries=1):
     """通过 deerflowcli 执行精读任务，返回模型产出的报告文本；失败返回 None。
 
@@ -307,18 +327,46 @@ def _run_deerflow(task, out_dir, fname, llm, retries=1):
             cmd += ["--gateway", gateway]
         if thread_id:
             cmd += ["--thread-id", thread_id, "继续"]
-            print(f"[deerflow] 恢复会话 {thread_id[:12]}…（第 {attempt + 1} 次，基于沙箱已写文件补齐）")
+            print(f"[deerflow] 恢复会话 {thread_id[:12]}…（第 {attempt + 1} 次，基于沙箱已写文件补齐）", flush=True)
         else:
             cmd.append(task)
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 60)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         except Exception as e:
-            print(f"[deerflow] 执行失败: {e}")
+            print(f"[deerflow] 执行失败: {e}", flush=True)
+            return None
+        # 等待期间每 300 秒打印一次心跳，避免"卡住不动"误判
+        t0 = time.time()
+        last_beat = 0
+        try:
+            while True:
+                code = proc.poll()
+                if code is not None:
+                    break
+                elapsed = int(time.time() - t0)
+                if elapsed > timeout + 60:
+                    proc.kill()
+                    print(f"[deerflow] 超时（>{timeout + 60}s），已终止", flush=True)
+                    break
+                if elapsed - last_beat >= 300:
+                    last_beat = elapsed
+                    print(f"[deerflow] 精读进行中…（已运行 {elapsed // 60} 分钟，输出目录 {out_dir}）", flush=True)
+                time.sleep(10)
+            out, err = proc.communicate()
+        except Exception as e:
+            proc.kill()
+            out, err = proc.communicate()
+            print(f"[deerflow] 执行中断: {e}", flush=True)
             return None
         if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip()[-300:]
-            print(f"[deerflow] deerflowcli 退出码 {proc.returncode}: {tail}")
+            tail = (err or out or "").strip()[-600:]
+            hint = _deerflow_error_hint(err or out or "")
+            print(f"[deerflow] deerflowcli 退出码 {proc.returncode}: {tail}", flush=True)
+            if hint:
+                print(f"[deerflow] ⚠️ {hint}", flush=True)
+                return None  # 配置类错误（如 API key 无效）重试无意义，直接降级
             return None
+        out = out or ""
         hits = []
         for root, _, files in os.walk(out_dir):
             for fn in files:
@@ -328,7 +376,6 @@ def _run_deerflow(task, out_dir, fname, llm, retries=1):
             p = max(hits, key=os.path.getmtime)
             with open(p, encoding="utf-8") as f:
                 return f.read().strip()
-        out = proc.stdout or ""
         if not thread_id:
             thread_id = _extract_thread_id(out)
         tail = out.strip()[-600:]

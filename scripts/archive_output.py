@@ -17,6 +17,7 @@
 import glob
 import os
 import re
+import shutil
 import sys
 import zipfile
 from datetime import datetime, timedelta
@@ -36,28 +37,40 @@ LEGACY_PATTERNS = [
 ]
 
 
+def _iter_files(path):
+    """目录递归展开为文件列表；普通文件直接返回自身。"""
+    if os.path.isdir(path):
+        for root, _dirs, files in os.walk(path):
+            for f in files:
+                yield os.path.join(root, f)
+    else:
+        yield path
+
+
 def _archive_paths(paths, base_dir, stamp):
-    """把文件列表压缩进 base_dir/archive/archive_<stamp>.zip 后删除原文件。"""
+    """把文件/目录压缩进 base_dir/archive/archive_<stamp>.zip 后删除原文件。"""
     if not paths:
         return 0
     archive_dir = os.path.join(base_dir, "archive")
     os.makedirs(archive_dir, exist_ok=True)
     zip_path = os.path.join(archive_dir, f"archive_{stamp}.zip")
     mode = "a" if os.path.exists(zip_path) else "w"
+    files = []
+    for path in paths:
+        files.extend(_iter_files(path))
     with zipfile.ZipFile(zip_path, mode, zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(paths):
+        for path in sorted(files):
             zf.write(path, arcname=os.path.relpath(path, base_dir))
     for path in paths:
         try:
             if os.path.isdir(path):
-                import shutil
                 shutil.rmtree(path)
             else:
                 os.remove(path)
         except OSError:
             pass
-    print(f"[archive] 归档 {len(paths)} 个 -> {zip_path}")
-    return len(paths)
+    print(f"[archive] 归档 {len(files)} 个 -> {zip_path}")
+    return len(files)
 
 
 def _archive_date_dirs(base_dir, keep_days, stamp):

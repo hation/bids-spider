@@ -64,7 +64,9 @@ class BaseCrawler:
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-blink-features=AutomationControlled',
-                        '--start-maximized'
+                        '--start-maximized',
+                        # 强制直连：macOS 系统代理（xray 10808）失效时 --no-proxy-server 无法覆盖，direct:// 才能绕过
+                        '--proxy-server=direct://'
                     ]
                 )
                 context = browser.new_context()
@@ -212,6 +214,8 @@ class BaseCrawler:
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-blink-features=AutomationControlled',
+                        # 强制直连：macOS 系统代理（xray 10808）失效时 --no-proxy-server 无法覆盖，direct:// 才能绕过
+                        '--proxy-server=direct://'
                     ]
                 )
                 context = browser.new_context()

@@ -44,12 +44,16 @@ class GuiZhou(BaseCrawler):
             self.body.update({'pageNo': page_no, 'pageSize': 15})
             response = context.request.post(self.list_api, data=json.dumps(self.body), headers=self.headers)
             data = response.json()
-            result = (data.get("result") or {}).get("data") or {}
+            # 接口偶发返回 JSON 字符串/非对象结构（如错误提示），做类型保护避免崩溃
+            result = data.get("result") if isinstance(data, dict) else None
+            result = result if isinstance(result, dict) else {}
             records = result.get("data") or []
             logger.info(f"[{self.region}]get {len(records)} tenders list success (page {page_no}).")
             if not records or len(records) < 15:
                 break
             for record in records:
+                if not isinstance(record, dict):
+                    continue
                 article_id = record.get('articleId') or ''
                 title = (record.get('title') or '').strip()
                 if not article_id or not title:

@@ -12,6 +12,7 @@ import glob
 import json
 import os
 import random
+import re
 import sys
 import time
 from datetime import datetime, timezone, timedelta
@@ -171,9 +172,20 @@ CN_EXPORT_COLS = {
 }
 
 
+# openpyxl 不接受的非法控制字符（XML 1.0 禁用），导出前清洗，避免整表写入失败
+_ILLEGAL_XML_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def _clean_cell(v):
+    if isinstance(v, str):
+        return _ILLEGAL_XML_CHARS.sub('', v)
+    return v
+
+
 def export_to_excel(df, path):
     """按中文列名导出 DataFrame（只映射存在的列）"""
     df = df.rename(columns={c: e for c, e in CN_EXPORT_COLS.items() if c in df.columns})
+    df = df.map(_clean_cell)
     df.to_excel(path, index=False)
 
 

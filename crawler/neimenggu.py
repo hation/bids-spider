@@ -1,5 +1,6 @@
 from crawler.base_crawler import BaseCrawler, Tender
 from utils.log import logger
+import requests
 
 
 class NeiMengGu(BaseCrawler):
@@ -12,40 +13,31 @@ class NeiMengGu(BaseCrawler):
                         '&noticeTypeName=%E9%87%87%E8%B4%AD%2F%E8%B5%84%E6%A0%BC%E9%A2%84%E5%AE%A1%E5%85%AC%E5%91%8A'
                         '&platformCode=&regionCode=&startTime=&endTime='
                         '&transactionTypeName=%E6%94%BF%E5%BA%9C%E9%87%87%E8%B4%AD&industriesTypeName=')
-        self.headers = {}
+        self.headers = {
+            'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+                           '(KHTML, like Gecko) Chrome/120.0 Safari/537.36'),
+            'Referer': self.index_url,
+            'Accept': 'application/json, text/plain, */*',
+        }
         self.date_filter = 'url_param'
 
     def build_list_url(self, page_num):
-        """原生日期参数：searchPublishResource 接口支持 startTime/endTime 过滤。"""
+        """原生日期参数：searchPublishResource 接口要求日期带时分秒（YYYY-MM-DD HH:MM:SS），
+        纯日期（YYYY-MM-DD）会返回 state=500「系统错误」（2026-11-20 实测）。"""
         return (
             self.api_url.replace('pageNum=1', f'pageNum={page_num}')
-            .replace('startTime=', f'startTime={self._date_start}')
-            .replace('endTime=', f'endTime={self._date_end}')
+            .replace('startTime=', f'startTime={self._date_start} 00:00:00')
+            .replace('endTime=', f'endTime={self._date_end} 23:59:59')
         )
 
     def _crawl(self, context):
-        page = context.new_page()
-
-        def handle_request(request):
-            # 复用门户页面自身的列表接口请求头（含 cookie、UA、referer）
-            if 'searchPublishResource' in request.url:
-                self.headers = {k: v for k, v in request.headers.items() if k.lower() != 'content-length'}
-
-        page.on("request", handle_request)
-        try:
-            page.goto(self.index_url, wait_until="domcontentloaded", timeout=60000)
-        except Exception as e:
-            logger.warning(f"goto {self.index_url} failed: {e}")
-        page.wait_for_timeout(5000)  # 等待 iframe 内列表接口请求发出，捕获请求头
-        if not self.headers:
-            logger.error("未捕获到列表接口请求头，可能页面结构已变化")
-            return
-
-        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
+        # 2026-11-20 改版：列表页源码已无 searchPublishResource 引用，页面触发式捕获请求头失效；
+        # 接口本身仍可用。Playwright APIRequestContext 走浏览器网络栈返回 500（疑受代理影响），
+        # 改用 requests 直连（curl 实测带 Referer/UA 即 200），不依赖页面。
         for page_num in range(1, self.max_pages + 1):
             api_url = self.api_url.replace('pageNum=1', f'pageNum={page_num}')
-            response = context.request.get(api_url, headers=self.headers)
             try:
+                response = requests.get(api_url, headers=self.headers, timeout=30)
                 data = response.json()
             except Exception as e:
                 logger.error(f"get tenders list json failed: {e}")
@@ -55,7 +47,7 @@ class NeiMengGu(BaseCrawler):
                 break
             records = (data.get("data", {}) or {}).get("data", []) or []
             logger.info(f"[{self.region}]get {len(records)} tenders list success (page {page_num}).")
-            if not records or len(records) < 10:
+            if not records:
                 break
             for record in records:
                 source_data_key = record.get('sourceDataKey') or ''

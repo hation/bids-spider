@@ -3,17 +3,18 @@ from utils.log import logger
 
 
 class JiangSu(BaseCrawler):
-    """江苏省公共资源交易网（http://jsggzy.jszwfw.gov.cn）
+    """江苏省公共资源交易网（https://jsggzy.jszwfw.gov.cn）
     列表经 /inteligentsearch/rest/esinteligentsearch/getFullTextDataNew 接口异步渲染到
     div.table-list div.table-row；翻页通过点击 #pager 分页器页码（data-page-index，0-based）
     触发接口重渲染。注意：页面默认只查询"当天"公告，当天无公告时列表为空（分页器无页码），
     此时保持单页不抓取，属站点正常行为。
+    2026-11-20：站点已弃用 http（80 端口 TCP 拒绝，ERR_CONNECTION_REFUSED），仅 https 可用。
     """
 
     def __init__(self):
         super().__init__('jiangsu', max_page_num=None)
-        self.index_url = 'http://jsggzy.jszwfw.gov.cn/jyxx/tradeInfonew.html'
-        self.base_url = 'http://jsggzy.jszwfw.gov.cn'
+        self.index_url = 'https://jsggzy.jszwfw.gov.cn/jyxx/tradeInfonew.html'
+        self.base_url = 'https://jsggzy.jszwfw.gov.cn'
         self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
 
     def _crawl(self, context):
@@ -36,7 +37,8 @@ class JiangSu(BaseCrawler):
                 href = a.get_attribute('href')
                 if not href:
                     continue
-                href = href if href.startswith('http') else self.base_url + href
+                # 站点已弃用 http，详情链接统一转 https（含页面里残留的 http 绝对地址）
+                href = href.replace('http://', 'https://') if href.startswith('http') else self.base_url + href
                 title = (a.inner_text() or '').strip()
                 date_text = ''
                 if row.locator('div.col-date').count():

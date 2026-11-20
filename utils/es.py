@@ -48,7 +48,7 @@ TENDER_INDEX_BODY = {
                 "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
             },
             "release_date": {"type": "keyword"},
-            "crawl_date": {"type": "date", "format": "yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis"},
+            "crawl_date": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "amount_wan": {"type": "double"},              # 项目金额（万元）
             "bid_deadline": {"type": "keyword"},           # 投标截止时间（ISO）
             "html": {

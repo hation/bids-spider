@@ -7,7 +7,7 @@
 接口无需 token/鉴权（实测空 token 直连 200），POST 即返回 JSON：
 result.totalcount / result.records[]（title / webdate / linkurl / infod）。
 详情页正文容器 div.article-info 只含元信息，**中标单位/金额在详情页附带的 PDF 附件里**
-（#fujian 链接指向 /zhejiang/xxx.pdf），用本机系统 python3 的 PyMuPDF 提取 PDF 文本
+（#fujian 链接指向 /zhejiang/xxx.pdf），用 PyMuPDF（requirements.txt 已含）提取 PDF 文本
 并并入正文，供 _enrich_meta 提取中标单位/中标金额。
 """
 import json
@@ -36,10 +36,9 @@ _HEADERS = {
                    '(KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36'),
 }
 
-# 本机系统 python3（含 PyMuPDF），非项目 venv；找不到时 PDF 解析降级为空
-_SYS_PYTHON = '/usr/bin/python3'
+# PDF 文本提取：优先进程内 PyMuPDF（requirements.txt 依赖）；异常时降级用本机系统 python3
 _PDF_EXTRACT_SCRIPT = (
-    "import sys, fitz; doc = fitz.open(sys.argv[1]); "
+    "import sys; import pymupdf; doc = pymupdf.open(sys.argv[1]); "
     "print(''.join(p.get_text() for p in doc))"
 )
 
@@ -142,7 +141,10 @@ class ZheJiangResult(ZheJiang):
 
     @staticmethod
     def _extract_pdf_text(pdf_url):
-        """下载 PDF 并用系统 python3 的 PyMuPDF 提取文本；任何一步失败返回空串（降级不影响主流程）。"""
+        """下载 PDF 并提取文本：优先进程内 PyMuPDF（requirements.txt 依赖）；异常时降级系统 python3。
+
+        任何一步失败返回空串（降级不影响主流程）。
+        """
         try:
             rp = requests.get(pdf_url, headers=_HEADERS, timeout=60)
             if rp.status_code != 200 or not rp.content[:4] == b'%PDF':
@@ -150,14 +152,25 @@ class ZheJiangResult(ZheJiang):
                 return ''
             with open('/tmp/zj_result.pdf', 'wb') as f:
                 f.write(rp.content)
-            result = subprocess.run(
-                [_SYS_PYTHON, '-c', _PDF_EXTRACT_SCRIPT, '/tmp/zj_result.pdf'],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode != 0:
-                logger.warning(f"[zhejiang]pdf extract failed: {result.stderr[:200]}")
-                return ''
-            return (result.stdout or '').strip()
+            # 方案 1：进程内 PyMuPDF（不依赖外部解释器）
+            try:
+                import pymupdf
+                doc = pymupdf.open('/tmp/zj_result.pdf')
+                return ''.join(page.get_text() for page in doc).strip()
+            except Exception as e:
+                logger.warning(f"[zhejiang]pdf in-process extract failed, fallback to system python3: {e}")
+            # 方案 2：系统 python3（/usr/bin/python3 自带 PyMuPDF，兜底）
+            for sys_python in ('/usr/bin/python3', 'python3'):
+                try:
+                    result = subprocess.run(
+                        [sys_python, '-c', _PDF_EXTRACT_SCRIPT, '/tmp/zj_result.pdf'],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        return result.stdout.strip()
+                except Exception as e:
+                    logger.warning(f"[zhejiang]pdf system-python extract failed ({sys_python}): {e}")
+            return ''
         except Exception as e:
             logger.warning(f"[zhejiang]pdf extract error: {e}")
             return ''

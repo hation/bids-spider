@@ -45,6 +45,8 @@ playwright install chromium
 
 需要本机运行 Elasticsearch 8.x（连接配置见 `utils/es.py`，索引 `tenders` 启动时自动创建）。
 
+> PyMuPDF 依赖说明：浙江结果公告采集（`crawler/result_zhejiang.py`）需要解析详情页 PDF 附件提取中标单位/金额，已列入 requirements.txt（`PyMuPDF>=1.24`）。若安装时走源码构建失败（需联网下载 MuPDF 源码），可强制用预编译 wheel：`pip install PyMuPDF --only-binary=:all:`（PyPI 提供 macOS/Linux/Windows 二进制包，无需编译）。运行时优先进程内 PyMuPDF，缺失时自动降级尝试系统 `python3`。
+
 ### LLM 精读配置（可选，deerflow 引擎）
 
 ```bash

@@ -52,6 +52,30 @@ _COMPANY_PATS = [
 ]
 
 
+_ORG_SUFFIX = re.compile(
+    r'(有限公司|股份有限公司|有限责任公司|集团|研究院|研究所|设计院|事务所|中心|医院|学校|学院|大学|'
+    r'银行|合作社|联合社|工作室|服务部|商行|厂|站|队|院|社|馆|分公司|支公司|个体工商户|店)$')
+
+
+def _clean_company(val):
+    """清洗中标单位：去掉前缀噪声；无合法单位后缀的（如项目名）返回空串。"""
+    if not val:
+        return ''
+    v = val.strip()
+    v = re.sub(r'^(?:牵头供应商|投标联合体|联合体供应商|联合体)[：:]\s*', '', v)
+    v = re.sub(r'[；;]\s*$', '', v).strip()
+    # 去 html2text 加粗/斜体标记与尾部包号、"（个体工商户）" 等噪声
+    v = v.strip('*_ ').strip()
+    v = re.sub(r'[（(]\d+包[）)]$', '', v).strip()
+    v = re.sub(r'[（(]个体工商户[）)]$', '', v).strip()
+    for noise in ('原公告的合同包', '合同包', '采购包', '分包'):
+        if v.startswith(noise):
+            return ''
+    if not _ORG_SUFFIX.search(v):
+        return ''
+    return v
+
+
 def extract_win_company(html):
     """从正文提取中标单位名称，未提取到返回空串。
 
@@ -61,7 +85,7 @@ def extract_win_company(html):
     """
     text = _to_text(html)
     text = text.replace('\u3000', ' ')
-    for pat in _COMPANY_PATS:
+    for idx, pat in enumerate(_COMPANY_PATS):
         m = re.search(pat, text)
         if m:
             val = m.group(1).strip()
@@ -77,7 +101,13 @@ def extract_win_company(html):
                 if m3:
                     val = m3.group(0).strip()
             if val:
-                return val
+                cleaned = _clean_company(val)
+                if cleaned:
+                    return cleaned
+                # 表格类模式（idx 3/4）可能取错列（如"包号"列），清洗失败时继续尝试后续模式
+                if idx in (3, 4):
+                    continue
+                return ''
     # PDF 表格兜底：表头（中标人/中标单位/中标供应商）后的数据区取公司名
     # 先拼接断行并去掉空格（PDF 表格公司名可能被拆成"XX有 限公司"），
     # 再剔除常见表头词（中标价/工期/服务期/质量承诺/项目负责人），避免被整体吞入匹配
@@ -91,7 +121,9 @@ def extract_win_company(html):
             r'([\u4e00-\u9fa5A-Za-z（）()·]{2,40}?(?:有限公司|股份有限公司|集团|公司|研究院|事务所|中心|医院|学校|大学|银行))',
             seg)
         if m2:
-            return m2.group(1).strip()
+            cleaned = _clean_company(m2.group(1))
+            if cleaned:
+                return cleaned
     return ''
 
 
@@ -146,3 +178,15 @@ def extract_win_amount(html):
         if m2:
             return float(m2.group(1).replace(',', '').replace('，', '')) / 10000
     return None
+
+
+def extract_void_reason(html):
+    """从废标/流标/终止公告正文提取废标原因，未提取到返回空串。"""
+    text = _to_text(html).replace('\u3000', ' ')
+    for kw in ('废标原因', '流标原因', '终止原因', '失败原因', '废标情形', '流标情形'):
+        m = re.search(re.escape(kw) + r'\s*[:：]?\s*([^\n]{2,120})', text)
+        if m:
+            val = m.group(1).strip().strip('。;；')
+            if val:
+                return val
+    return ''

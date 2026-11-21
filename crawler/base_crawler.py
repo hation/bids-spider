@@ -21,6 +21,7 @@ CN_EXPORT_COLS = {
     'region': '地区', 'href': '公告链接', 'title': '商机标题',
     'release_date': '发布日期', 'crawl_date': '抓取日期',
     'html': '商机详情', 'truncated': '详情截断',
+    'announce_type': '公告类型', 'win_company': '中标单位', 'win_amount_wan': '中标金额(万元)',
 }
 
 
@@ -42,6 +43,9 @@ class Tender:
     crawl_date: str = ''
     amount_wan: float = None      # 项目金额（万元），入库时从正文提取
     bid_deadline: str = ''        # 投标截止时间（ISO YYYY-MM-DD[ HH:MM]），入库时从正文提取
+    announce_type: str = ''       # 招标公告 / 中标公告 / 废标公告（入库时按标题分类或由结果采集器预设）
+    win_company: str = ''         # 中标单位（仅中标公告）
+    win_amount_wan: float = None  # 中标金额（万元，仅中标公告）
 
 
 class BaseCrawler:

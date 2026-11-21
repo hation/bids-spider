@@ -51,6 +51,9 @@ TENDER_INDEX_BODY = {
             "crawl_date": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "amount_wan": {"type": "double"},              # 项目金额（万元）
             "bid_deadline": {"type": "keyword"},           # 投标截止时间（ISO）
+            "announce_type": {"type": "keyword"},          # 招标公告 / 中标公告 / 废标公告
+            "win_company": {"type": "keyword"},            # 中标单位（仅中标公告）
+            "win_amount_wan": {"type": "double"},          # 中标金额（万元，仅中标公告）
             "html": {
                 "type": "text",
                 "index": True,                                # 正文可全文搜索

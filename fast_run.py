@@ -169,6 +169,7 @@ CN_EXPORT_COLS = {
     'region': '地区', 'href': '公告链接', 'title': '商机标题',
     'release_date': '发布日期', 'crawl_date': '抓取日期',
     'html': '商机详情', 'truncated': '详情截断',
+    'announce_type': '公告类型', 'win_company': '中标单位', 'win_amount_wan': '中标金额(万元)',
 }
 
 

@@ -101,6 +101,10 @@ class ShaanXi(BaseCrawler):
         return data.get('data') or []
 
     def _get_tenders(self, context, code, query):
+        # 日期补抓模式：允许翻更深（每页 10 条），并抬高总条数上限
+        if getattr(self, '_date_start', None):
+            self.max_pages = max(self.max_pages, 300)
+            self.max_items = max(self.max_items, 5000)
         page_no = 1
         total = 0
         while page_no <= self.max_pages and total < self.max_items:

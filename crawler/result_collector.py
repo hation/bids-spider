@@ -30,6 +30,18 @@ def run_result_region(region, start_date, end_date, summary_path=None):
         kept = len(crawler.tenders)
         no_date = getattr(crawler, '_date_no_date', 0)
         status = 'ok' if kept > 0 else ('no_match' if no_date == 0 else 'no_date')
+        # 单地区 Excel 加 _result 后缀，避免覆盖同省招标 Excel（汇总后仍会被 cleanup 清理）
+        try:
+            excel_dir = getattr(crawler, '_excel_dir', '') or ''
+            excel_name = getattr(crawler, '_excel_name', '') or ''
+            if excel_dir and excel_name:
+                src = os.path.join(excel_dir, excel_name)
+                dst = os.path.join(excel_dir, excel_name.replace(f'date_{start_date}_',
+                                                                 f'date_{start_date}_result_'))
+                if os.path.exists(src) and src != dst:
+                    os.rename(src, dst)
+        except OSError as e:
+            print(f'[results:{region}] Excel 改名失败（不影响入库）: {e}')
     except Exception as e:
         status = f'error: {e}'
     record = {'region': region, 'status': status, 'kept': kept, 'no_date': no_date}

@@ -34,7 +34,6 @@ def backfill(batch=None):
 
     seen = 0
     updated = 0
-    missing = 0
     actions = []
     try:
         resp = client.search(index='tenders', body=query, scroll='10m', size=1000, _source=True)
@@ -52,9 +51,6 @@ def backfill(batch=None):
                     html = src.get('html', '') or ''
                     doc['win_company'] = extract_win_company(html)
                     doc['win_amount_wan'] = extract_win_amount(html)
-                else:
-                    missing += 1
-                    continue
                 actions.append({
                     "_op_type": "update",
                     "_index": "tenders",
@@ -82,7 +78,7 @@ def backfill(batch=None):
             print(f'[backfill_announce_type] 更新成功 {success} 条，失败 {len(errors) if isinstance(errors, list) else 0} 条')
         except Exception as e:
             print(f'[backfill_announce_type] bulk 更新失败: {e}')
-    print(f'[backfill_announce_type] 扫描 {seen} 条，其中非中标公告跳过 {missing} 条，提交更新 {len(actions)} 条')
+    print(f'[backfill_announce_type] 扫描 {seen} 条，提交更新 {len(actions)} 条')
 
 
 if __name__ == '__main__':

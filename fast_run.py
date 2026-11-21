@@ -264,6 +264,9 @@ def _load_region_rows_from_es(start_date, regions):
             'html': html_text,
             'crawl_date': src.get('crawl_date', ''),
             'truncated': '是' if len(html_text) > 32767 else '否',
+            'announce_type': src.get('announce_type', ''),
+            'win_company': src.get('win_company', ''),
+            'win_amount_wan': src.get('win_amount_wan'),
         })
     return rows
 
@@ -413,6 +416,9 @@ def query_date_from_es(date_key, with_opportunities=True):
             'html': html_text,
             'crawl_date': src.get('crawl_date', ''),
             'truncated': '是' if len(html_text) > 32767 else '否',
+            'announce_type': src.get('announce_type', ''),
+            'win_company': src.get('win_company', ''),
+            'win_amount_wan': src.get('win_amount_wan'),
         })
     df = pd.DataFrame(rows)
     out = os.path.join(date_dir(date_key), f'date_{date_key}.xlsx')

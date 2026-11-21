@@ -101,25 +101,32 @@ def extract_win_amount(html):
     支持冒号格式（"中标金额：X"）与 PDF 表格格式（表头"中标价（元）"后数据区金额）。
     """
     text = _to_text(html)
-    # 覆盖「中标（成交）金额 / 中标(成交)金额 / 总成交金额」变体
-    kws = ['中标（成交）金额', '中标(成交)金额', '总成交金额', '中标金额', '成交金额']
+    # 覆盖「中标（成交）金额 / 中标(成交)金额 / 中标成交金额 / 总成交金额」变体
+    kws = ['中标（成交）金额', '中标(成交)金额', '中标成交金额', '总成交金额', '中标金额', '成交金额']
     for kw in kws:
-        m = re.search(kw + r'[（(]?万元[)）]?[:：]?\s*([\d,，.]+)', text)
+        m = re.search(re.escape(kw) + r'[（(]?万元[)）]?[:：]?\s*([\d,，.]+)', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', ''))
-        m = re.search(kw + r'[（(]?元[)）]?[:：]?\s*([\d,，.]+)', text)
+        m = re.search(re.escape(kw) + r'[（(]?元[)）]?[:：]?\s*([\d,，.]+)', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', '')) / 10000
-        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*万元', text)
+        m = re.search(re.escape(kw) + r'[:：]\s*\**\s*([\d,，.]+)\s*\**\s*万元', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', ''))
         # 湖北等站点格式：`中标（成交）金额：47.37(万元)`（数字后括号单位）
-        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*[（(]万元[)）]', text)
+        m = re.search(re.escape(kw) + r'[:：]\s*([\d,，.]+)\s*[（(]万元[)）]', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', ''))
-        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*元', text)
+        # 数字+元（兼容 html2text 加粗标记 `**` 干扰，如湖南 `金额：**1545469.56**元`）
+        m = re.search(re.escape(kw) + r'[:：]\s*\**\s*([\d,，.]+)\s*\**\s*元', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', '')) / 10000
+        # 湖南等站点：`中标成交金额：696650.0000`（无括号无单位，大额数字按元折算）
+        m = re.search(re.escape(kw) + r'[:：]\s*([\d,，.]+)(?!\s*(?:元|万元|[（(]))', text)
+        if m:
+            val = float(m.group(1).replace(',', '').replace('，', ''))
+            if val >= 10000:
+                return val / 10000
     # 云南正文表格：`报价：2444384.23（元）`（单位元 -> 万元）
     m = re.search(r'报价[:：]\s*([\d,，.]+)\s*[（(]?元[)）]?', text)
     if m:

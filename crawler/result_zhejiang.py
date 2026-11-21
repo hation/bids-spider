@@ -6,10 +6,13 @@
 
 接口无需 token/鉴权（实测空 token 直连 200），POST 即返回 JSON：
 result.totalcount / result.records[]（title / webdate / linkurl / infod）。
-详情页正文容器 div.article-info（与 zhejiang.py 一致），可直接 requests 抓取。
+详情页正文容器 div.article-info 只含元信息，**中标单位/金额在详情页附带的 PDF 附件里**
+（#fujian 链接指向 /zhejiang/xxx.pdf），用本机系统 python3 的 PyMuPDF 提取 PDF 文本
+并并入正文，供 _enrich_meta 提取中标单位/中标金额。
 """
 import json
 import re
+import subprocess
 
 import requests
 
@@ -32,6 +35,13 @@ _HEADERS = {
     'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
                    '(KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36'),
 }
+
+# 本机系统 python3（含 PyMuPDF），非项目 venv；找不到时 PDF 解析降级为空
+_SYS_PYTHON = '/usr/bin/python3'
+_PDF_EXTRACT_SCRIPT = (
+    "import sys, fitz; doc = fitz.open(sys.argv[1]); "
+    "print(''.join(p.get_text() for p in doc))"
+)
 
 
 class ZheJiangResult(ZheJiang):
@@ -105,16 +115,51 @@ class ZheJiangResult(ZheJiang):
 
     @staticmethod
     def _fetch_detail(href):
-        """详情页正文：requests 直连抓 div.article-info（与 zhejiang.py 容器一致）。"""
+        """详情页正文：requests 抓 div.article-info；若页面附带 PDF 附件，用系统 python3+PyMuPDF 提取文本并入正文。
+
+        浙江中标结果公告的中标单位/金额在 PDF 附件里（HTML 中 #fujian 链接指向 /zhejiang/xxx.pdf），
+        纯 div.article-info 只有元信息，无法提取中标信息，故必须解析 PDF。
+        """
         try:
             resp = requests.get(href, headers=_HEADERS, timeout=30)
             if resp.status_code != 200:
                 logger.warning(f"[zhejiang]detail status {resp.status_code}: {href}")
                 return ''
-            m = re.search(r'<div\s+class="article-info"[^>]*>(.*?)</div>', resp.text, re.S)
-            return m.group(1) if m else ''
+            html = resp.text
+            m = re.search(r'<div\s+class="article-info"[^>]*>(.*?)</div>', html, re.S)
+            body = m.group(1) if m else ''
+            # PDF 附件：/zhejiang/... .pdf（相对路径，补域名）
+            pdf_rel = re.search(r'(/zhejiang/[^"\']+\.pdf)', html)
+            if pdf_rel:
+                pdf_url = 'https://ggzy.zj.gov.cn' + pdf_rel.group(1)
+                pdf_text = ZheJiangResult._extract_pdf_text(pdf_url)
+                if pdf_text:
+                    body += f'\n<div class="pdf-attachment">\n{pdf_text}\n</div>'
+            return body
         except Exception as e:
             logger.warning(f"[zhejiang]parse detail failed {href}: {e}")
+            return ''
+
+    @staticmethod
+    def _extract_pdf_text(pdf_url):
+        """下载 PDF 并用系统 python3 的 PyMuPDF 提取文本；任何一步失败返回空串（降级不影响主流程）。"""
+        try:
+            rp = requests.get(pdf_url, headers=_HEADERS, timeout=60)
+            if rp.status_code != 200 or not rp.content[:4] == b'%PDF':
+                logger.warning(f"[zhejiang]pdf download failed {pdf_url}: status {rp.status_code}")
+                return ''
+            with open('/tmp/zj_result.pdf', 'wb') as f:
+                f.write(rp.content)
+            result = subprocess.run(
+                [_SYS_PYTHON, '-c', _PDF_EXTRACT_SCRIPT, '/tmp/zj_result.pdf'],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                logger.warning(f"[zhejiang]pdf extract failed: {result.stderr[:200]}")
+                return ''
+            return (result.stdout or '').strip()
+        except Exception as e:
+            logger.warning(f"[zhejiang]pdf extract error: {e}")
             return ''
 
 

@@ -35,18 +35,40 @@ _COMPANY_PATS = [
 
 
 def extract_win_company(html):
-    """从正文提取中标单位名称，未提取到返回空串。"""
+    """从正文提取中标单位名称，未提取到返回空串。
+
+    支持两类来源格式：
+    - 冒号格式（"中标供应商：XX公司" / "供应商名称：XX"）
+    - PDF 表格格式（表头"中标人"后数据区取公司名，兼容断行拼接）
+    """
     text = _to_text(html)
     text = text.replace('\u3000', ' ')
     for pat in _COMPANY_PATS:
         m = re.search(pat, text)
         if m:
             return m.group(1).strip()
+    # PDF 表格兜底：表头（中标人/中标单位/中标供应商）后的数据区取公司名
+    # 先拼接断行并去掉空格（PDF 表格公司名可能被拆成"XX有 限公司"），
+    # 再剔除常见表头词（中标价/工期/服务期/质量承诺/项目负责人），避免被整体吞入匹配
+    m = re.search(r'(?:中标人|中标单位|中标供应商|成交供应商)', text)
+    if m:
+        seg = text[m.end():m.end() + 150].replace('\n', '').replace(' ', '')
+        for head in ('中标价（元）', '中标价(元)', '中标价', '工期/服务期（天）质量承诺', '工期/服务期（天）',
+                     '服务期（天）质量承诺', '工期', '服务期', '质量承诺', '项目负责人', '中标内容'):
+            seg = seg.replace(head, '')
+        m2 = re.search(
+            r'([\u4e00-\u9fa5A-Za-z（）()·]{2,40}?(?:有限公司|股份有限公司|集团|公司|研究院|事务所|中心|医院|学校|大学|银行))',
+            seg)
+        if m2:
+            return m2.group(1).strip()
     return ''
 
 
 def extract_win_amount(html):
-    """提取中标/成交金额，兼容 元/万元，返回万元 float；未提取到返回 None。"""
+    """提取中标/成交金额，兼容 元/万元，返回万元 float；未提取到返回 None。
+
+    支持冒号格式（"中标金额：X"）与 PDF 表格格式（表头"中标价（元）"后数据区金额）。
+    """
     text = _to_text(html)
     # 覆盖「中标（成交）金额 / 中标(成交)金额」变体
     kws = ['中标（成交）金额', '中标(成交)金额', '中标金额', '成交金额']
@@ -63,4 +85,11 @@ def extract_win_amount(html):
         m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*元', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', '')) / 10000
+    # PDF 表格兜底：表头"中标价（元）/中标价(元)/中标金额（元）"后数据区金额（单位元 -> 万元）
+    m = re.search(r'中标价[（(]?元[)）]?|中标金额[（(]?元[)）]?', text)
+    if m:
+        seg = text[m.end():m.end() + 80].replace('\n', '')
+        m2 = re.search(r'([\d,，.]+)', seg)
+        if m2:
+            return float(m2.group(1).replace(',', '').replace('，', '')) / 10000
     return None

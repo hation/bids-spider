@@ -189,9 +189,11 @@ class BaseCrawler:
             if not tender.announce_type:
                 tender.announce_type = classify_announce_type(tender.title)
             # 正文信号兜底：辽宁等站点"结果公告"栏目混入废标结果，标题命中中标但正文
-            # 含"结果类型：废标/废标情形/流标"时改为废标公告（避免误归中标且无中标单位）
+            # 含"结果类型：废标/废标情形/流标"时改为废标公告（避免误归中标且无中标单位）；
+            # 2026-11-22 扩充：河北等站点异常结果/流标用"废标原因/无供应商递交"表述
             if tender.announce_type == '中标公告' and re.search(
-                    r'(结果类型[:：]\s*(废标|流标)|废标情形|流标情形)', text):
+                    r'(结果类型[:：]\s*(废标|流标|终止)|废标原因|流标原因|终止原因|废标情形|流标情形|'
+                    r'无供应商(递交|投标)|无有效(投标|供应商)|投标人不足三家)', text):
                 tender.announce_type = '废标公告'
             if tender.announce_type == '中标公告':
                 if not tender.win_company:

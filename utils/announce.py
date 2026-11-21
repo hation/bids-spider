@@ -76,6 +76,33 @@ def _clean_company(val):
     return v
 
 
+def _table_cell_after_header(text, header_kw):
+    """在 markdown 表格里按表头列位置取数据行单元格（河南等站点：供应商名称不在第一列）。
+
+    例：
+        | 包号 | 采购内容 | 供应商名称 | 地址 | 中标金额 |
+        |---|---|---|---|---|
+        | XX-1 | 内容 | 河南鼎实建筑工程有限公司 | ... |
+    """
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        if header_kw in line and '|' in line:
+            cells = [c.strip() for c in line.strip().strip('|').split('|')]
+            col = next((j for j, c in enumerate(cells) if header_kw in c), None)
+            if col is None:
+                continue
+            for data in lines[i + 1:i + 6]:
+                if '|' not in data:
+                    continue
+                dc = [c.strip() for c in data.strip().strip('|').split('|')]
+                if len(dc) > col:
+                    val = dc[col]
+                    # 跳过表头分隔行（---）与空单元格
+                    if val and not re.fullmatch(r'[-:\s]*', val):
+                        return val
+    return ''
+
+
 def extract_win_company(html):
     """从正文提取中标单位名称，未提取到返回空串。
 
@@ -108,6 +135,13 @@ def extract_win_company(html):
                 if idx in (3, 4):
                     continue
                 return ''
+    # markdown 表格按表头列位置取（河南等站点：包号/内容在前，供应商名称在第 3 列）
+    for kw in ('供应商名称', '成交供应商', '中标供应商', '中标单位', '中标人'):
+        cell = _table_cell_after_header(text, kw)
+        if cell:
+            cleaned = _clean_company(cell)
+            if cleaned:
+                return cleaned
     # PDF 表格兜底：表头（中标人/中标单位/中标供应商）后的数据区取公司名
     # 先拼接断行并去掉空格（PDF 表格公司名可能被拆成"XX有 限公司"），
     # 再剔除常见表头词（中标价/工期/服务期/质量承诺/项目负责人），避免被整体吞入匹配

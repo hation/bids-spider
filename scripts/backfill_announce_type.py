@@ -19,7 +19,13 @@ from utils.announce import (
     extract_win_company,
     extract_win_amount,
     extract_void_reason,
+    _to_text,
 )
+
+# 正文废标信号：命中则把误分类的"中标公告"改判废标公告并提取废标原因
+_VOID_SIG = __import__('re').compile(
+    r'(结果类型[:：]\s*(废标|流标|终止)|废标原因|流标原因|终止原因|废标情形|流标情形|'
+    r'无供应商(递交|投标)|无有效(投标|供应商)|投标人不足三家)')
 
 
 def _safe(fn, html, default):
@@ -96,9 +102,23 @@ def backfill(batch=None, meta_only=False, void_only=False):
                     html = src.get('html', '') or ''
                     doc = {'void_reason': _safe(extract_void_reason, html, '')}
                 elif meta_only:
+                    # 只补当前为空的字段，避免把已有值覆盖成空（提取会随正文差异波动）
                     html = src.get('html', '') or ''
-                    doc = {'win_company': _safe(extract_win_company, html, ''),
-                           'win_amount_wan': _safe(extract_win_amount, html, None)}
+                    doc = {}
+                    text = _to_text(html)
+                    if _VOID_SIG.search(text):
+                        # 误分类修正：正文是废标/流标结果的，改判废标公告并提取原因
+                        doc['announce_type'] = '废标公告'
+                        doc['win_company'] = ''
+                        doc['win_amount_wan'] = None
+                        doc['void_reason'] = _safe(extract_void_reason, html, '')
+                    else:
+                        if not (src.get('win_company') or '').strip():
+                            doc['win_company'] = _safe(extract_win_company, html, '')
+                        if src.get('win_amount_wan') is None:
+                            doc['win_amount_wan'] = _safe(extract_win_amount, html, None)
+                    if not doc:
+                        continue  # 两字段都已有值，跳过不更新
                 else:
                     atype = classify_announce_type(title)
                     doc = {'announce_type': atype}

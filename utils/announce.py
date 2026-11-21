@@ -193,6 +193,10 @@ def extract_win_amount(html):
             val = float(m.group(1).replace(',', '').replace('，', ''))
             if val >= 10000:
                 return val / 10000
+    # 宁夏等站点：中文大写金额 + 括号内数字元，`中标金额：陆佰玖拾壹万...伍角捌分(￥:6913924.58)`
+    m = re.search(r'中标金额[：:][^\n]{0,80}?[（(]\s*[￥¥]?\s*[:：]?\s*([\d,，.]+)\s*[)）]', text)
+    if m:
+        return float(m.group(1).replace(',', '').replace('，', '')) / 10000
     # 云南正文表格：`报价：2444384.23（元）`（单位元 -> 万元）
     m = re.search(r'报价[:：]\s*([\d,，.]+)\s*[（(]?元[)）]?', text)
     if m:

@@ -159,6 +159,11 @@ class BaseCrawler:
             from utils.announce import classify_announce_type, extract_win_company, extract_win_amount
             if not tender.announce_type:
                 tender.announce_type = classify_announce_type(tender.title)
+            # 正文信号兜底：辽宁等站点"结果公告"栏目混入废标结果，标题命中中标但正文
+            # 含"结果类型：废标/废标情形/流标"时改为废标公告（避免误归中标且无中标单位）
+            if tender.announce_type == '中标公告' and re.search(
+                    r'(结果类型[:：]\s*(废标|流标)|废标情形|流标情形)', text):
+                tender.announce_type = '废标公告'
             if tender.announce_type == '中标公告':
                 if not tender.win_company:
                     tender.win_company = extract_win_company(text)

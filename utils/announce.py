@@ -30,6 +30,7 @@ def classify_announce_type(title):
 _COMPANY_PATS = [
     r'(?:中标供应商名称|成交供应商名称|中标单位名称|成交单位名称)\s*[:：]\s*([^\s，。,；;、|\n]{2,60})',
     r'(?:中标供应商|成交供应商|中标单位|成交单位|中标人|成交人)\s*[（(]?[^）)]{0,8}[)）]?\s*[:：]\s*([^\s，。,；;、|\n]{2,60})',
+    r'供应商名称\s*[:：]\s*([^\s，。,；;、|\n]{2,60})',
 ]
 
 
@@ -47,7 +48,9 @@ def extract_win_company(html):
 def extract_win_amount(html):
     """提取中标/成交金额，兼容 元/万元，返回万元 float；未提取到返回 None。"""
     text = _to_text(html)
-    for kw in ('中标金额', '成交金额'):
+    # 覆盖「中标（成交）金额 / 中标(成交)金额」变体
+    kws = ['中标（成交）金额', '中标(成交)金额', '中标金额', '成交金额']
+    for kw in kws:
         m = re.search(kw + r'[（(]?万元[)）]?[:：]?\s*([\d,，.]+)', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', ''))

@@ -1,8 +1,9 @@
 """存量数据回填：为 ES 中缺少 announce_type 的公告按标题分类标记，中标公告补提取中标单位/金额。
 
-用法：
-    python scripts/backfill_announce_type.py            # 全量回填（只处理 announce_type 缺失的）
-    python scripts/backfill_announce_type.py 1000       # 分批回填（每次处理条数）
+两种模式：
+    python scripts/backfill_announce_type.py                 # 分类回填：只处理 announce_type 缺失的，按标题分类写入；中标公告同时提取中标单位/金额
+    python scripts/backfill_announce_type.py --meta          # 补提取：对 announce_type=中标公告 但中标单位/金额缺失的重新提取（提取模式增强后用于存量）
+    参数：可加数字 N 限制每次处理的条数（分批）。
 """
 import os
 import sys
@@ -15,22 +16,38 @@ from utils.es import ESConnection
 from utils.announce import classify_announce_type, extract_win_company, extract_win_amount
 
 
-def backfill(batch=None):
+def backfill(batch=None, meta_only=False):
     es = ESConnection()
     client = es._client()
     if not client:
         print('[backfill_announce_type] ES 连接失败')
         return
 
-    # 只处理 announce_type 缺失的文档（幂等：已标记的一次更新后收敛）
-    query = {
-        "query": {
-            "bool": {
-                "must_not": [{"exists": {"field": "announce_type"}}]
-            }
-        },
-        "sort": ["_doc"],
-    }
+    if meta_only:
+        # 补提取模式：中标公告但中标单位/金额尚未提取的
+        query = {
+            "query": {
+                "bool": {
+                    "must": [{"term": {"announce_type": "中标公告"}}],
+                    "should": [
+                        {"bool": {"must_not": [{"exists": {"field": "win_company"}}]}},
+                        {"bool": {"must_not": [{"exists": {"field": "win_amount_wan"}}]}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+            "sort": ["_doc"],
+        }
+    else:
+        # 分类回填模式：只处理 announce_type 缺失的文档（幂等：已标记的一次更新后收敛）
+        query = {
+            "query": {
+                "bool": {
+                    "must_not": [{"exists": {"field": "announce_type"}}]
+                }
+            },
+            "sort": ["_doc"],
+        }
 
     seen = 0
     updated = 0
@@ -45,12 +62,17 @@ def backfill(batch=None):
                 src = h.get('_source', {})
                 doc_id = h.get('_id')
                 title = src.get('title', '')
-                atype = classify_announce_type(title)
-                doc = {'announce_type': atype}
-                if atype == '中标公告':
+                if meta_only:
                     html = src.get('html', '') or ''
-                    doc['win_company'] = extract_win_company(html)
-                    doc['win_amount_wan'] = extract_win_amount(html)
+                    doc = {'win_company': extract_win_company(html),
+                           'win_amount_wan': extract_win_amount(html)}
+                else:
+                    atype = classify_announce_type(title)
+                    doc = {'announce_type': atype}
+                    if atype == '中标公告':
+                        html = src.get('html', '') or ''
+                        doc['win_company'] = extract_win_company(html)
+                        doc['win_amount_wan'] = extract_win_amount(html)
                 actions.append({
                     "_op_type": "update",
                     "_index": "tenders",
@@ -82,5 +104,7 @@ def backfill(batch=None):
 
 
 if __name__ == '__main__':
-    batch = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else None
-    backfill(batch)
+    args = sys.argv[1:]
+    meta_only = '--meta' in args
+    batch = next((int(a) for a in args if a.isdigit()), None)
+    backfill(batch, meta_only=meta_only)

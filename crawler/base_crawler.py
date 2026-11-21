@@ -12,6 +12,7 @@ from playwright_stealth import Stealth
 
 from utils.log import logger
 from utils.es import ESConnection
+from utils.throttle import Throttle, CircuitOpenError
 
 OUTPUT_DIR = "output"
 EXCEL_CELL_LIMIT = 32767  # Excel 单格最大字符数，超过会被截断
@@ -56,6 +57,10 @@ class BaseCrawler:
         self.tenders = {}
         self.exists_urls = set()
         self.es_conn = ESConnection()
+        self._throttler = Throttle(
+            rate_per_min=getattr(self, 'rate_per_min', 30),
+            max_fail_streak=getattr(self, 'max_fail_streak', 5),
+        )
 
     def run(self, increment=True):
         self.exists_urls = self.get_exists_url_from_es()
@@ -102,6 +107,29 @@ class BaseCrawler:
     def _random_sleep(_min=1, _max=60):
         sleep_seconds = random.uniform(_min, _max)
         time.sleep(sleep_seconds)
+
+    def _throttle(self):
+        """请求前限速（令牌桶）。"""
+        self._throttler.wait()
+
+    def _with_retry(self, fn):
+        """带指数退避的请求包装；连续失败超过阈值抛 CircuitOpenError。"""
+        for attempt in range(self._throttler.retries):
+            try:
+                self._throttle()
+                result = fn()
+                self._throttler.on_success()
+                return result
+            except CircuitOpenError:
+                raise
+            except Exception as e:
+                msg = str(e).lower()
+                if any(k in msg for k in ('429', '403', 'too many', 'forbidden', 'rate limit')):
+                    self._throttler.on_blocked()
+                self._throttler.on_fail()
+                if attempt == self._throttler.retries - 1:
+                    raise
+                self._throttler.backoff(attempt)
 
     def save_tenders_to_excel(self):
         if not self.tenders:

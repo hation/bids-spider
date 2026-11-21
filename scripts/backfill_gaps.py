@@ -115,6 +115,22 @@ def to_segments(days, seg_days):
     return [(_fmt(s), _fmt(e)) for s, e in segs]
 
 
+def _read_status(log_path, region):
+    """从单段日志解析 fast_run 的结果状态（ok / no_match / no_date / error: ...）。
+
+    fast_run 无论站点成功失败都 exit 0（内部捕获异常），故熔断不能看退出码，必须看日志状态。
+    """
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        for line in content.splitlines():
+            if f'[{region}]' in line and ', kept=' in line:
+                return line.split(f'[{region}]', 1)[1].strip().split(', kept=')[0].strip()
+    except Exception:
+        pass
+    return 'unknown'
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -167,30 +183,43 @@ def main():
     fail_count = defaultdict(int)
     done = 0
     while tasks:
+        # 组装本批：跨地区并发，但同一地区最多一个任务在跑（避免同站并发触发风控）
         batch = []
-        while tasks and len(batch) < args.parallel:
-            r, s, e = tasks.pop(0)
-            if fail_count[r] >= args.max_fail:
-                print(f'  [skip] {r} 连续失败 {fail_count[r]} 次，熔断')
+        rest = []
+        used_regions = set()
+        for item in tasks:
+            r, s, e = item
+            if len(batch) >= args.parallel:
+                rest.append(item)
                 continue
-            batch.append((r, s, e))
+            if r in used_regions:
+                rest.append(item)
+                continue
+            if fail_count[r] >= args.max_fail:
+                print(f'  [skip] {r} 连续失败 {fail_count[r]} 次，熔断跳过 {s}~{e}')
+                continue
+            batch.append(item)
+            used_regions.add(r)
+        tasks = rest
         if not batch:
             break
         procs = []
         for r, s, e in batch:
             log_path = os.path.join(ROOT, 'logs', f'backfill_{run_id}_{r}_{s}_{e}.log')
             logf = open(log_path, 'w', encoding='utf-8')
-            procs.append((r, s, e, logf, subprocess.Popen(
+            procs.append((r, s, e, log_path, logf, subprocess.Popen(
                 [PY, 'fast_run.py', 'by_date', s, e, '--regions', r, '--no-summary'],
                 cwd=ROOT, stdout=logf, stderr=subprocess.STDOUT)))
-        for r, s, e, logf, p in procs:
-            code = p.wait()
+        for r, s, e, log_path, logf, p in procs:
+            p.wait()
             logf.close()
             done += 1
-            status = 'ok' if code == 0 else f'exit{code}'
-            ok_flag = code == 0
-            fail_count[r] = 0 if ok_flag else fail_count[r] + 1
-            rec = {'region': r, 'start': s, 'end': e, 'exit': code, 'status': status}
+            status = _read_status(log_path, r)
+            if status.startswith('error'):
+                fail_count[r] += 1
+            else:
+                fail_count[r] = 0
+            rec = {'region': r, 'start': s, 'end': e, 'status': status}
             with open(progress_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + '\n')
             print(f'  [{done}/{done + len(tasks)}] {r} {s}~{e} -> {status}')

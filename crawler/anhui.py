@@ -7,12 +7,15 @@ class AnHui(BaseCrawler):
     """安徽政府采购网（https://www.ccgp-anhui.gov.cn）
     列表页为 SSR 渲染，正文不在详情页 DOM 中，通过 portal/detail 接口获取 HTML 正文。
     翻页：点击列表页底部分页器（.page ul.po-pager li.number，页码为 1-based）触发异步加载。
+
+    注意：原 ZcyAnnouncement3012 实为"单一来源公示"栏目（1963 条），
+    2026-11-21 由用户核实改为 ZcyAnnouncement2（采购公告，72862 条）。
     """
 
     def __init__(self):
         super().__init__('anhui', max_page_num=None)
         self.index_url = ('https://www.ccgp-anhui.gov.cn/site/category'
-                          '?parentId=oJCosldFbaJFzmyFhz1c6Q%3D%3D&childrenCode=ZcyAnnouncement3012')
+                          '?parentId=oJCosldFbaJFzmyFhz1c6Q%3D%3D&childrenCode=ZcyAnnouncement2')
         self.base_url = 'https://www.ccgp-anhui.gov.cn'
         self.detail_api = 'https://www.ccgp-anhui.gov.cn/portal/detail'
         self.detail_headers = {

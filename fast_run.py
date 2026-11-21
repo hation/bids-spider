@@ -504,12 +504,13 @@ def main():
         return
 
     if cmd == 'results':
-        # 抓结果公告（中标/废标）：用法 python fast_run.py results <YYYY-MM-DD> [--regions a,b]
+        # 抓结果公告（中标/废标）：用法 python fast_run.py results <start> [end] [--regions a,b]
         if len(args) < 2:
-            print('用法: python fast_run.py results <YYYY-MM-DD> [--regions a,b]')
+            print('用法: python fast_run.py results <YYYY-MM-DD> [YYYY-MM-DD] [--regions a,b]')
             sys.exit(1)
         from crawler.result_collector import RESULT_CRAWLERS, run_result_region
         start = args[1]
+        end = start
         regions = None
         rest = args[2:]
         i = 0
@@ -517,6 +518,9 @@ def main():
             if rest[i] == '--regions' and i + 1 < len(rest):
                 regions = [r.strip() for r in rest[i + 1].split(',') if r.strip()]
                 i += 2
+            elif not rest[i].startswith('--'):
+                end = rest[i]
+                i += 1
             else:
                 i += 1
         result_regions = regions or list(RESULT_CRAWLERS)
@@ -525,8 +529,8 @@ def main():
             if region not in RESULT_CRAWLERS:
                 print(f'[results] 未知结果地区: {region}（支持: {", ".join(RESULT_CRAWLERS)}）')
                 continue
-            run_result_region(region, start, start, summary_path)
-        print(f'[results] 结果公告抓取完成（{start}），可运行 summarize 合并汇总')
+            run_result_region(region, start, end, summary_path)
+        print(f'[results] 结果公告抓取完成（{start}~{end}）')
         return
 
     # 原有模式：all / <region>

@@ -25,6 +25,9 @@ RESULT_CRAWLERS = {
     'jilin': ('result_jilin', 'JiLinResult'),
     'hubei': ('result_hubei', 'HuBeiResult'),
     'hunan': ('result_hunan', 'HuNanResult'),
+    'guangxi': ('result_guangxi', 'GuangXiResult'),
+    'fujian': ('result_fujian', 'FuJianResult'),
+    'shaanxi': ('result_shaanxi', 'ShaanXiResult'),
 }
 
 

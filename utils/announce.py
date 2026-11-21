@@ -131,6 +131,13 @@ def extract_win_amount(html):
     m = re.search(r'报价[:：]\s*([\d,，.]+)\s*[（(]?元[)）]?', text)
     if m:
         return float(m.group(1).replace(',', '').replace('，', '')) / 10000
+    # 福建等站点表格：`中标（成交）金额 | 评审价格` 表头后数据行金额（`1,549,900.00元`）
+    m = re.search(r'中标[（(]成交[)）]金额', text)
+    if m:
+        seg = text[m.end():m.end() + 250]
+        m2 = re.search(r'([\d,，.]+)\s*元', seg)
+        if m2:
+            return float(m2.group(1).replace(',', '').replace('，', '')) / 10000
     # PDF 表格兜底：表头"中标价（元）/中标价(元)/中标金额（元）"后数据区金额（单位元 -> 万元）
     m = re.search(r'中标价[（(]?元[)）]?|中标金额[（(]?元[)）]?', text)
     if m:

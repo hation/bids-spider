@@ -145,15 +145,31 @@ class BaseCrawler:
         return text
 
     def _enrich_meta(self, tender):
-        """入库前从正文提取金额与投标截止时间，写入 Tender 结构化字段。
+        """入库前从正文提取结构化字段：金额、投标截止时间，并按标题分类公告类型。
 
-        复用 analyze_today 的提取逻辑（金额兼容元/万元；截止时间兼容多平台格式）。
+        - announce_type 为空时按标题关键词分类（结果采集器可预设，跳过分类）
+        - 中标公告额外提取 win_company / win_amount_wan
+        - amount_wan 复用 analyze_today 提取逻辑（金额兼容元/万元）
         """
+        try:
+            text = self._html_to_text(tender.html)
+        except Exception:
+            text = ''
+        try:
+            from utils.announce import classify_announce_type, extract_win_company, extract_win_amount
+            if not tender.announce_type:
+                tender.announce_type = classify_announce_type(tender.title)
+            if tender.announce_type == '中标公告':
+                if not tender.win_company:
+                    tender.win_company = extract_win_company(text)
+                if tender.win_amount_wan is None:
+                    tender.win_amount_wan = extract_win_amount(text)
+        except Exception as e:
+            logger.warning(f"[{self.region}] 分类/中标信息提取失败: {e}")
         if tender.amount_wan is not None and tender.bid_deadline:
             return  # 已提取过，避免重复
         try:
             from analyze_today import extract_money, extract_timeline
-            text = self._html_to_text(tender.html)
             unit, val = extract_money(text)
             if unit == '万元':
                 tender.amount_wan = float(val)

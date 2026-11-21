@@ -15,6 +15,7 @@ RESULT_CRAWLERS = {
     'chongqing': ('result_chongqing', 'ChongQingResult'),
     'shandong': ('result_shandong', 'ShanDongResult'),
     'guizhou': ('result_guizhou', 'GuiZhouResult'),
+    'zhejiang': ('result_zhejiang', 'ZheJiangResult'),
 }
 
 

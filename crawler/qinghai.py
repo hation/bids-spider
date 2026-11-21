@@ -5,15 +5,17 @@ from utils.log import logger
 
 
 class QingHai(BaseCrawler):
-    """青海省公共资源交易网（海南州频道）：HTML 静态列表页，正文容器 div.ewb-info-content。
+    """青海省公共资源交易网（全省频道）：HTML 静态列表页，正文容器 div.ewb-info-content。
 
+    注意：原 `hain` 路径是海南藏族自治州频道（仅该州数据、2021 年旧数据），
+    2026-11-21 改为全省 `/ggzy/` 布局列表页（含西宁/海东/海西/海北/海南/黄南/玉树/果洛/格尔木）。
     分页：#pager 分页组件（a[data-page-index]，0 起），点击"下一页" JS 异步
     加载。默认抓取前 50 页（或累计 500 条，取先到者）。
     """
 
     def __init__(self):
         super().__init__('qinghai', max_page_num=None)
-        self.index_url = 'https://www.qhggzyjy.gov.cn/hain/jyxx/001002/001002001/secondPage.html'
+        self.index_url = 'https://www.qhggzyjy.gov.cn/ggzy/jyxx/001002/001002001/transinfo_list.html'
         self.max_pages = 50  # 最多抓取页数
         self.max_items = 5000  # 最多抓取条数（与 max_pages 取先到者；已放宽，避免到达目标日前截断）
 
@@ -81,7 +83,25 @@ class QingHai(BaseCrawler):
 
     @staticmethod
     def parse_detail(page):
-        return page.locator('div.ewb-info-content').inner_html()
+        """正文容器：新站 `/ggzy/` 布局为 div.info.xiangxiyekuang；旧频道布局为 div.ewb-info-content（兜底）。
+
+        详情页正文由 JS 异步渲染，需等待容器出现且有内容后再抓。
+        """
+        try:
+            page.wait_for_function(
+                """() => {
+                    const el = document.querySelector('div.info.xiangxiyekuang, div.ewb-info-content');
+                    return el && (el.innerText || '').trim().length > 30;
+                }""",
+                timeout=20000,
+            )
+        except Exception:
+            pass
+        for sel in ('div.info.xiangxiyekuang', 'div.ewb-info-content'):
+            loc = page.locator(sel).first
+            if loc.count():
+                return loc.inner_html()
+        return ''
 
 
 if __name__ == '__main__':

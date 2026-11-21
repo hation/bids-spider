@@ -23,6 +23,7 @@ RESULT_CRAWLERS = {
     'neimenggu': ('result_neimenggu', 'NeiMengGuResult'),
     'liaoning': ('result_liaoning', 'LiaoNingResult'),
     'jilin': ('result_jilin', 'JiLinResult'),
+    'hubei': ('result_hubei', 'HuBeiResult'),
 }
 
 

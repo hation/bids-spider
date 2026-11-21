@@ -113,6 +113,10 @@ def extract_win_amount(html):
         m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*万元', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', ''))
+        # 湖北等站点格式：`中标（成交）金额：47.37(万元)`（数字后括号单位）
+        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*[（(]万元[)）]', text)
+        if m:
+            return float(m.group(1).replace(',', '').replace('，', ''))
         m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*元', text)
         if m:
             return float(m.group(1).replace(',', '').replace('，', '')) / 10000

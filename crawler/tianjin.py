@@ -9,6 +9,7 @@ class TianJin(BaseCrawler):
         super().__init__('tianjin')
         self.authorization = None
         self.headers = None
+        self.max_pages = 50
 
     def _get_tender_details(self, context, tender_id):
         logger.info(f"start to request tender details for {tender_id}")
@@ -68,40 +69,56 @@ class TianJin(BaseCrawler):
         # }
 
     def _get_tender_list(self, context, hylx, xxlx):
-        """传入行业类型与信息类型"""
+        """传入行业类型与信息类型，翻页取全部（列表按发布时间倒序，遇目标日由 guarded_save 停止）。"""
         logger.info(f"start to get tender list for {hylx}, {xxlx}.")
-        response = context.request.post(
-            url="https://www.tjggzy.cn/api/api/portal/Announcement/Page",
-            # 行业类型：政府采购/房屋市政...
-            data={
-              "PageIndex": 1,
-              "PageSize": 50,
-              "State": 2,
-              "tenderProjectCode": "",
-              "bidSectionCode": "",
-              "announcementName": "",
-              "announcementCode": "",
-              "orderByFieldType": 1,
-              "orderByType": 0,
-              "recordCode": "",
-              "industryType": [hylx],
-              "announcementType": xxlx,
-              "infoType": "",
-              "districtCode": "",
-              "publishTimeType": -1
-            },
-            headers=self.headers
-        )
-        data = response.json()
-        if data.get("statusCode") != 2000:
-            logger.error(f"get tender list error:{data}")
-            return set()
-        records = set([
-            record['announcementId']
-            for record in data['responseData']['records']
-        ])
-        logger.info(f"get tender list success: {records}.")
-        return records
+        all_ids = []
+        seen_ids = set()
+        for page_index in range(1, self.max_pages + 1):
+            body = {
+                "PageIndex": page_index,
+                "PageSize": 50,
+                "State": 2,
+                "tenderProjectCode": "",
+                "bidSectionCode": "",
+                "announcementName": "",
+                "announcementCode": "",
+                "orderByFieldType": 1,
+                "orderByType": 0,
+                "recordCode": None,
+                "industryType": [hylx],
+                "announcementType": xxlx,
+                "infoType": "",
+                "districtCode": "",
+                "publishStartTime": None,
+                "publishEndTime": None,
+                "publishTimeType": -1,
+            }
+            try:
+                response = context.request.post(
+                    url="https://www.tjggzy.cn/api/api/portal/Announcement/Page",
+                    data=json.dumps(body),
+                    headers=self.headers,
+                )
+                data = response.json()
+            except Exception as e:
+                logger.error(f"get tender list failed (page {page_index}): {e}")
+                break
+            if data.get("statusCode") != 2000:
+                logger.error(f"get tender list error:{data}")
+                break
+            records = (data.get("responseData") or {}).get("records") or []
+            logger.info(f"[{self.region}]list page {page_index}: {len(records)} records")
+            if not records:
+                break
+            for record in records:
+                tender_id = record['announcementId']
+                if tender_id in seen_ids:
+                    continue
+                seen_ids.add(tender_id)
+                all_ids.append(tender_id)
+            if len(records) < 50:
+                break
+        return all_ids
 
     def _crawl(self, context):
         page = context.new_page()
@@ -124,9 +141,10 @@ class TianJin(BaseCrawler):
         self.headers = {
             "Content-Type": "application/json",
             "Referer": "https://www.tjggzy.cn/announcementIndex",
-            "Authorization": self.authorization,  # 关键：带上提取的authorization
             "User-Agent": page.evaluate("navigator.userAgent")
         }
+        if self.authorization:
+            self.headers["Authorization"] = self.authorization
         pages = self._get_page_dictionary(context)
         for hylx, xxlxs in pages.items():
             for xxlx in xxlxs:

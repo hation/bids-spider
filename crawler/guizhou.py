@@ -3,6 +3,8 @@ import time
 from datetime import datetime
 from urllib.parse import quote
 
+import requests
+
 from crawler.base_crawler import BaseCrawler, Tender
 from utils.log import logger
 
@@ -10,47 +12,39 @@ from utils.log import logger
 class GuiZhou(BaseCrawler):
     def __init__(self):
         super().__init__('guizhou')
-        self.max_pages = 50  # 默认抓取前 50 页（或累计 500 条，取先到者）
+        self.max_pages = 50
         self.list_url = 'http://www.ccgp-guizhou.gov.cn/site/category?parentId=190013&childrenCode=ZcyAnnouncement'
         self.list_api = 'http://www.ccgp-guizhou.gov.cn/portal/category'
         self.detail_api = 'http://www.ccgp-guizhou.gov.cn/portal/detail'
         self.parent_id = '190013'
-        self.headers = {}
-        self.body = {}
+        self.category_code = 'ZcyAnnouncement1'
+        self.headers = {
+            'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+                           '(KHTML, like Gecko) Chrome/120.0 Safari/537.36'),
+            'Content-Type': 'application/json',
+            'Referer': (self.list_url + '&categoryCode=ZcyAnnouncement1'),
+            'Accept': 'application/json, text/plain, */*',
+        }
 
     def _crawl(self, context):
-        page = context.new_page()
-
-        def handle_request(request):
-            # 复用列表页自身的接口请求头与请求体
-            if self.list_api in request.url:
-                self.headers = {k: v for k, v in request.headers.items() if k.lower() != 'content-length'}
-                try:
-                    self.body = json.loads(request.post_data or '{}')
-                except Exception:
-                    self.body = {}
-
-        page.on("request", handle_request)
-        page.goto(self.list_url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(8000)  # 等待页面发起列表接口请求
-        if not self.body:
-            logger.error("未捕获到列表接口请求头，可能页面结构已变化")
-            return
-        self._get_tenders(context)
-
-    def _get_tenders(self, context):
-        # 分页循环：翻页深度由日期判断决定（guarded_save 遇早于目标日停止）
+        # 2026-11-20：页面触发式捕获请求头失效（列表页改版），改直连接口。
+        # 接口 body 必须为 categoryCode 结构，否则 result.data 为 None。
+        import time as _time
         for page_no in range(1, self.max_pages + 1):
-            self.body.update({'pageNo': page_no, 'pageSize': 15})
-            response = context.request.post(self.list_api, data=json.dumps(self.body), headers=self.headers)
-            data = response.json()
-            # 接口偶发返回 JSON 字符串/非对象结构（如错误提示），做类型保护避免崩溃
-            result = data.get("result") if isinstance(data, dict) else None
-            result = result if isinstance(result, dict) else {}
-            records = result.get("data") or []
-            logger.info(f"[{self.region}]get {len(records)} tenders list success (page {page_no}).")
-            if not records or len(records) < 15:
+            body = {'pageNo': page_no, 'pageSize': 15,
+                    'categoryCode': self.category_code, '_t': int(_time.time() * 1000)}
+            try:
+                resp = requests.post(self.list_api, json=body, headers=self.headers, timeout=30)
+                data = resp.json()
+            except Exception as e:
+                logger.error(f"[{self.region}]list request failed: {e}")
                 break
+            result = data.get('result') if isinstance(data, dict) else None
+            inner = result.get('data') if isinstance(result, dict) else None
+            records = inner.get('data') if isinstance(inner, dict) else None
+            if not records:
+                break
+            logger.info(f"[{self.region}]get {len(records)} tenders list success (page {page_no}).")
             for record in records:
                 if not isinstance(record, dict):
                     continue
@@ -63,17 +57,14 @@ class GuiZhou(BaseCrawler):
                     continue
                 release_date = self._parse_date(record.get('publishDate'))
                 html = self._get_detail(context, article_id)
-                tender = Tender(
-                    region=self.region,
-                    href=href,
-                    title=title,
-                    release_date=release_date,
-                    html=html,
-                    crawl_date=self._get_crawl_date(),
-                )
+                tender = Tender(region=self.region, href=href, title=title,
+                                release_date=release_date, html=html,
+                                crawl_date=self._get_crawl_date())
                 self.save_tender_to_es(tender)
                 self.tenders[href] = tender
                 self._random_sleep(_max=3)
+            if len(records) < 15:
+                break
         logger.info(f"[{self.region}]crawl done, new {len(self.tenders)} tenders.")
 
     def _get_detail(self, context, article_id, retries=3):

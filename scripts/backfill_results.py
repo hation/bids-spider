@@ -36,6 +36,14 @@ def main():
     args = ap.parse_args()
 
     regions = [r.strip() for r in args.regions.split(',') if r.strip()] or list(RESULT_CRAWLERS)
+    # 过滤未注册结果采集器的地区（否则 fast_run 只打印"未知结果地区"并空跑，被误记为 ok）
+    unknown = [r for r in regions if r not in RESULT_CRAWLERS]
+    if unknown:
+        print(f'⚠️ 以下地区未注册结果采集器，已跳过：{", ".join(unknown)}', flush=True)
+    regions = [r for r in regions if r in RESULT_CRAWLERS]
+    if not regions:
+        print('❌ 没有任何已注册的结果采集器地区，退出', flush=True)
+        sys.exit(1)
     os.makedirs(OUT, exist_ok=True)
     run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
     progress = os.path.join(OUT, f'results_{run_id}.jsonl')

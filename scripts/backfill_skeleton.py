@@ -94,7 +94,48 @@ def fetch_detail(page, href, min_len=500, tries=20):
                 continue
             if len(h) > len(best):
                 best = h
+    # iframe 兜底：安徽等站点正文在内嵌 /portal/detail 页
+    if len(best) < min_len and len(page.frames) > 1:
+        for f in page.frames[1:]:
+            try:
+                body = f.locator('body')
+                if body.count():
+                    h = body.first.inner_html()
+                    if len(h) > len(best):
+                        best = h
+            except Exception:
+                continue
     return best
+
+
+def fetch_tianjin_api(href, retries=2):
+    """天津详情为纯数字 ID，走门户 GetDetail JSON 接口（无需授权）。
+
+    接口限流严格（约 5 次/5 分钟，429 返回 retryAfter=300），故每次请求后
+    主动休眠 60 秒，遇 429 按 retryAfter 冷却后重试。
+    """
+    import time
+    import requests
+    for attempt in range(retries + 1):
+        try:
+            r = requests.post(
+                'https://www.tjggzy.cn/api/api/portal/Announcement/GetDetail',
+                json={'Id': href}, timeout=30)
+            d = r.json()
+            if d.get('statusCode') == 2000:
+                time.sleep(60)  # 主动限速，规避封禁
+                return d['responseData'].get('noticeContent') or ''
+            if d.get('code') == 429:
+                wait = int(d.get('retryAfter', 300) or 300)
+                print(f'   天津限流，冷却 {wait}s 后重试({attempt+1}/{retries})', flush=True)
+                time.sleep(wait)
+                continue
+            print(f'   天津API状态异常 {href}: {str(d)[:120]}', flush=True)
+            return ''
+        except Exception as e:
+            print(f'   天津API失败 {href}: {e}', flush=True)
+            time.sleep(30)
+    return ''
 
 
 def main():
@@ -118,9 +159,14 @@ def main():
         page = ctx.new_page()
         for i, s in enumerate(docs, 1):
             href = s.get('href') or ''
-            if not href or not href.startswith('http'):
+            region = s.get('region') or ''
+            # 天津详情为纯数字 ID，走 JSON API；其余站点走 Playwright
+            if region == 'tianjin' and href.isdigit():
+                html = fetch_tianjin_api(href)
+            elif not href.startswith('http'):
                 continue
-            html = fetch_detail(page, href)
+            else:
+                html = fetch_detail(page, href)
             if len(html) < 500:
                 print(f'  [{i}/{len(docs)}] 仍为空/过短({len(html)}) {href[:60]}', flush=True)
                 continue

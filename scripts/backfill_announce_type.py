@@ -19,6 +19,7 @@ from utils.announce import (
     extract_win_company,
     extract_win_amount,
     extract_void_reason,
+    extract_contact,
     _to_text,
 )
 
@@ -26,6 +27,14 @@ from utils.announce import (
 _VOID_SIG = __import__('re').compile(
     r'(结果类型[:：]\s*(废标|流标|终止)|废标原因|流标原因|终止原因|废标情形|流标情形|'
     r'无供应商(递交|投标)|无有效(投标|供应商)|投标人不足三家)')
+
+
+def _safe_tuple(fn, html, default):
+    """多返回值提取的容错包装。"""
+    try:
+        return fn(html)
+    except Exception:
+        return default
 
 
 def _safe(fn, html, default):
@@ -36,7 +45,7 @@ def _safe(fn, html, default):
         return default
 
 
-def backfill(batch=None, meta_only=False, void_only=False):
+def backfill(batch=None, meta_only=False, void_only=False, contact_only=False):
     es = ESConnection()
     client = es._client()
     if not client:
@@ -52,6 +61,20 @@ def backfill(batch=None, meta_only=False, void_only=False):
                     "should": [
                         {"term": {"void_reason.keyword": ""}},
                         {"bool": {"must_not": [{"exists": {"field": "void_reason"}}]}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+            "sort": ["_doc"],
+        }
+    elif contact_only:
+        # 联系人回填：contact_person 尚为空的全部公告
+        query = {
+            "query": {
+                "bool": {
+                    "should": [
+                        {"term": {"contact_person": ""}},
+                        {"bool": {"must_not": [{"exists": {"field": "contact_person"}}]}},
                     ],
                     "minimum_should_match": 1,
                 }
@@ -98,7 +121,11 @@ def backfill(batch=None, meta_only=False, void_only=False):
                 src = h.get('_source', {})
                 doc_id = h.get('_id')
                 title = src.get('title', '')
-                if void_only:
+                if contact_only:
+                    html = src.get('html', '') or ''
+                    p_, ph_, sub_ = _safe_tuple(extract_contact, html, ('', '', ''))
+                    doc = {'contact_person': p_, 'contact_phone': ph_, 'contact_subject': sub_}
+                elif void_only:
                     html = src.get('html', '') or ''
                     doc = {'void_reason': _safe(extract_void_reason, html, '')}
                 elif meta_only:
@@ -160,5 +187,6 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     meta_only = '--meta' in args
     void_only = '--void' in args
+    contact_only = '--contact' in args
     batch = next((int(a) for a in args if a.isdigit()), None)
-    backfill(batch, meta_only=meta_only, void_only=void_only)
+    backfill(batch, meta_only=meta_only, void_only=void_only, contact_only=contact_only)

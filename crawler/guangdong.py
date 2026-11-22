@@ -95,11 +95,25 @@ class GuangDong(BaseCrawler):
         finally:
             detail_page.close()
 
-    def _get_detail(self, page, href):
+    def _get_detail(self, page, href, min_len=500, tries=20):
+        """抓详情正文。
+
+        该站点为 Vue 异步渲染：div.notice-content 元素会先出现（空骨架 <!---->），
+        正文随后异步填充；只等元素出现会抓到 667 字节空骨架（2026-11-22 实测）。
+        故轮询 inner_html 长度，非空达阈值才返回。
+        """
         try:
             page.goto(href, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("div.notice-content", timeout=20000)
-            return page.locator("div.notice-content").inner_html()
+            for _ in range(tries):
+                if page.locator("div.notice-content").count():
+                    html = page.locator("div.notice-content").first.inner_html()
+                    if len(html) >= min_len:
+                        return html
+                page.wait_for_timeout(500)
+            # 兜底：返回当前内容（部分公告本身很短）
+            if page.locator("div.notice-content").count():
+                return page.locator("div.notice-content").first.inner_html()
+            return ''
         except Exception as e:
             logger.error(f"[{self.region}]parse detail failed {href}: {e}")
             return ''

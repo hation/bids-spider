@@ -72,9 +72,17 @@ class SiChuan(BaseCrawler):
     def _get_detail(self, page, href):
         try:
             page.goto(href, wait_until="domcontentloaded", timeout=60000)
-            # 不同业务类型详情页结构不同（#noticeArea / 通用正文 #newsText），取公共正文容器 #newsText
-            page.wait_for_selector("#newsText", state="attached", timeout=20000)
-            return page.locator("#newsText").first.inner_html()
+            # 不同业务类型详情页结构不同（#noticeArea / 通用正文 #newsText）；
+            # #newsText 为异步填充，state="attached" 只等挂载会抓到空壳，改为轮询内容长度
+            for _ in range(20):
+                if page.locator("#newsText").count():
+                    html = page.locator("#newsText").first.inner_html()
+                    if len(html) >= 500:
+                        return html
+                page.wait_for_timeout(500)
+            if page.locator("#newsText").count():
+                return page.locator("#newsText").first.inner_html()
+            return ''
         except Exception as e:
             logger.error(f"[{self.region}]parse detail failed {href}: {e}")
             return ''

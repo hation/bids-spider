@@ -61,8 +61,16 @@ class HeBei(BaseCrawler):
     @staticmethod
     def _get_detail(page, href):
         page.goto(href, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_selector("div.ewb-copy", timeout=10000)
-        return page.locator("div.ewb-copy").inner_html()
+        # div.ewb-copy 为异步填充，只等元素出现会抓到空壳/短内容，轮询内容长度
+        for _ in range(16):
+            if page.locator("div.ewb-copy").count():
+                html = page.locator("div.ewb-copy").first.inner_html()
+                if len(html) >= 500:
+                    return html
+            page.wait_for_timeout(500)
+        if page.locator("div.ewb-copy").count():
+            return page.locator("div.ewb-copy").first.inner_html()
+        return ''
 
     @staticmethod
     def _goto_next_page(page):

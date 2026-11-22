@@ -27,7 +27,9 @@ from utils.announce import (
 
 ES_URL = 'http://127.0.0.1:9200'
 SELECTORS = ['div.notice-content', 'div.articleContent', 'div.innercontent', 'div.u-content',
-             'div.mainTextBox', 'div.article', 'div#content', 'div.content']
+             'div.mainTextBox', 'div.article', 'div#content', 'div.content',
+             'div.ewb-copy', 'div.ewb-trade-con', '#newsText', '#noticeArea',
+             '.mainTextBox', '.articleContent', '#mainText']
 VOID_SIG = re.compile(
     r'(结果类型[:：]\s*(废标|流标|终止)|废标原因|流标原因|终止原因|废标情形|流标情形|'
     r'无供应商(递交|投标)|无有效(投标|供应商)|投标人不足三家)')

@@ -48,6 +48,9 @@ class Tender:
     win_company: str = ''         # 中标单位（仅中标公告）
     win_amount_wan: float = None  # 中标金额（万元，仅中标公告）
     void_reason: str = ''         # 废标原因（仅废标公告）
+    contact_person: str = ''      # 联系人
+    contact_phone: str = ''       # 联系电话
+    contact_subject: str = ''     # 联系人主体（中标供应商 / 采购人/代理）
 
 
 class BaseCrawler:
@@ -185,7 +188,8 @@ class BaseCrawler:
         except Exception:
             text = ''
         try:
-            from utils.announce import classify_announce_type, extract_win_company, extract_win_amount, extract_void_reason
+            from utils.announce import (classify_announce_type, extract_win_company, extract_win_amount,
+                                        extract_void_reason, extract_contact)
             if not tender.announce_type:
                 tender.announce_type = classify_announce_type(tender.title)
             # 正文信号兜底：辽宁等站点"结果公告"栏目混入废标结果，标题命中中标但正文
@@ -202,6 +206,11 @@ class BaseCrawler:
                     tender.win_amount_wan = extract_win_amount(text)
             if tender.announce_type == '废标公告' and not tender.void_reason:
                 tender.void_reason = extract_void_reason(text)
+            if not tender.contact_person and not tender.contact_phone:
+                person, phone, subject = extract_contact(tender.html)
+                tender.contact_person = person
+                tender.contact_phone = phone
+                tender.contact_subject = subject
         except Exception as e:
             logger.warning(f"[{self.region}] 分类/中标信息提取失败: {e}")
         if tender.amount_wan is not None and tender.bid_deadline:

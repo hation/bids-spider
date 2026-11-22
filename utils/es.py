@@ -55,6 +55,9 @@ TENDER_INDEX_BODY = {
             "win_company": {"type": "keyword"},            # 中标单位（仅中标公告）
             "win_amount_wan": {"type": "double"},          # 中标金额（万元，仅中标公告）
             "void_reason": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+            "contact_person": {"type": "keyword"},
+            "contact_phone": {"type": "keyword"},
+            "contact_subject": {"type": "keyword"},
             "html": {
                 "type": "text",
                 "index": True,                                # 正文可全文搜索

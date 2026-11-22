@@ -29,10 +29,19 @@ class GuiZhou(BaseCrawler):
     def _crawl(self, context):
         # 2026-11-20：页面触发式捕获请求头失效（列表页改版），改直连接口。
         # 接口 body 必须为 categoryCode 结构，否则 result.data 为 None。
-        import time as _time
+        # 2026-11-22：接口支持 publishDateStart/publishDateEnd（YYYY-MM-DD）日期过滤，
+        # 日期补抓模式下注入区间，避免扫描模式翻页够不到早期日期（历史缺口补不了）。
+        _time = time
+        date_start = getattr(self, '_date_start', None)
+        date_end = getattr(self, '_date_end', None)
+        page_size = 15
         for page_no in range(1, self.max_pages + 1):
-            body = {'pageNo': page_no, 'pageSize': 15,
+            body = {'pageNo': page_no, 'pageSize': page_size,
                     'categoryCode': self.category_code, '_t': int(_time.time() * 1000)}
+            # 实测：publishDateEnd 生效（返回 <= 该日的倒序数据），publishDateStart 不生效，
+            # 故只发 end 收窄范围；起始边界靠下方逐条日期判断提前停止。
+            if date_end:
+                body['publishDateEnd'] = date_end
             try:
                 resp = requests.post(self.list_api, json=body, headers=self.headers, timeout=30)
                 data = resp.json()
@@ -52,10 +61,15 @@ class GuiZhou(BaseCrawler):
                 title = (record.get('title') or '').strip()
                 if not article_id or not title:
                     continue
+                release_date = self._parse_date(record.get('publishDate'))
+                # 日期模式：列表倒序，遇到早于目标起始日即已翻过目标区间，立即停止
+                # （必须在 exists_urls 判断前，否则已入库的旧数据会跳过而不触发边界停止）
+                if date_start and release_date and release_date[:10] < date_start:
+                    logger.info(f"[{self.region}]已翻过目标日期 {date_start}，提前停止翻页")
+                    return
                 href = f'http://www.ccgp-guizhou.gov.cn/site/detail?parentId={self.parent_id}&articleId={quote(article_id)}'
                 if href in self.exists_urls:
                     continue
-                release_date = self._parse_date(record.get('publishDate'))
                 html = self._get_detail(context, article_id)
                 tender = Tender(region=self.region, href=href, title=title,
                                 release_date=release_date, html=html,

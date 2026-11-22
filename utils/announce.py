@@ -230,10 +230,13 @@ def extract_void_reason(html):
     return ''
 
 
-_CONTACT_PATS = [
-    r'(?:中标供应商|成交供应商|中标单位|中标人)[^\n]{0,40}?(?:联系人|项目联系人)\s*[:：]\s*([^\s，。,；;\n]{2,20})',
-    r'(?:中标供应商|成交供应商|中标单位|中标人)[^\n]{0,40}?(?:联系电话|电话|联系方式)\s*[:：]\s*([\d\-()（）转\s]{7,25})',
+_CONTACT_PERSON_PATS = [
+    # 中标供应商前置（跨行、限 60 字内，避免误把远处采购人联系人归为中标商）
+    r'(?:中标供应商|成交供应商|中标单位|中标人)[\s\S]{0,60}?(?:联系人|项目联系人)\s*[:：]\s*([^\s，。,；;\n]{2,20})',
     r'(?:联系人|项目联系人)\s*[:：]\s*([^\s，。,；;\n]{2,20})',
+]
+_CONTACT_PHONE_PATS = [
+    r'(?:中标供应商|成交供应商|中标单位|中标人)[\s\S]{0,60}?(?:联系电话|联系方式|电话)\s*[:：]\s*([\d\-()（）转\s]{7,25})',
     r'(?:联系电话|联系方式|电话)\s*[:：]\s*([\d\-()（）转\s]{7,25})',
 ]
 
@@ -247,24 +250,23 @@ def extract_contact(html):
     text = _to_text(html).replace('\u3000', ' ')
     person = phone = ''
     subject = ''
-    # 第一轮：中标供应商前置（优先）
-    for pat in _CONTACT_PATS[:2]:
-        m = re.search(pat, text)
-        if m:
-            val = re.sub(r'\s+', '', m.group(1)).strip()
-            if '联系' in pat or '电话' in pat:
-                phone = phone or val
-            else:
-                person = person or val
-            subject = subject or '中标供应商'
+    # 第一轮：中标供应商前置（优先，联系人/电话分别匹配，避免误判分支）
+    m = re.search(_CONTACT_PERSON_PATS[0], text)
+    if m:
+        person = re.sub(r'\s+', '', m.group(1)).strip()
+        subject = '中标供应商'
+    m = re.search(_CONTACT_PHONE_PATS[0], text)
+    if m:
+        phone = re.sub(r'\s+', '', m.group(1)).strip()
+        subject = subject or '中标供应商'
     # 第二轮：全文兜底（采购人/代理）
     if not person:
-        m = re.search(_CONTACT_PATS[2], text)
+        m = re.search(_CONTACT_PERSON_PATS[1], text)
         if m:
             person = re.sub(r'\s+', '', m.group(1)).strip()
             subject = subject or '采购人/代理'
     if not phone:
-        m = re.search(_CONTACT_PATS[3], text)
+        m = re.search(_CONTACT_PHONE_PATS[1], text)
         if m:
             phone = re.sub(r'\s+', '', m.group(1)).strip()
             subject = subject or '采购人/代理'

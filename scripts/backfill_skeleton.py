@@ -66,7 +66,7 @@ def collect_skeletons(es, region=None, limit=None):
     return docs
 
 
-def fetch_detail(page, href, min_len=1000, tries=20):
+def fetch_detail(page, href, min_len=500, tries=20):
     """打开详情并轮询正文容器长度；返回最长的正文 HTML。"""
     try:
         page.goto(href, wait_until='domcontentloaded', timeout=60000)
@@ -118,10 +118,10 @@ def main():
         page = ctx.new_page()
         for i, s in enumerate(docs, 1):
             href = s.get('href') or ''
-            if not href:
+            if not href or not href.startswith('http'):
                 continue
             html = fetch_detail(page, href)
-            if len(html) < 1000:
+            if len(html) < 500:
                 print(f'  [{i}/{len(docs)}] 仍为空/过短({len(html)}) {href[:60]}', flush=True)
                 continue
             title = s.get('title', '')

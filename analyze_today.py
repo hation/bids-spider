@@ -76,9 +76,10 @@ def extract_money(html):
         m = re.search(kw + r'[（(]?万元[)）]?[:：]?\s*([\d,，.]+)', h)
         if m:
             return ('万元', float(m.group(1).replace(',', '').replace('，', '')))
-        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*万元', h)
+        m = re.search(kw + r'[:：]\s*([\d,，.]+)\s*(万元|元)', h)
         if m:
-            return ('万元', float(m.group(1).replace(',', '').replace('，', '')))
+            unit = '万元' if m.group(2) == '万元' else '元'
+            return (unit, float(m.group(1).replace(',', '').replace('，', '')))
     return (None, None)
 
 # ---------------------------------------------------------------- 关键时间节点提取

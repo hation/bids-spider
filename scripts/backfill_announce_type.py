@@ -22,6 +22,7 @@ from utils.announce import (
     extract_contact,
     _to_text,
 )
+from analyze_today import extract_money
 
 # 正文废标信号：命中则把误分类的"中标公告"改判废标公告并提取废标原因
 _VOID_SIG = __import__('re').compile(
@@ -45,7 +46,7 @@ def _safe(fn, html, default):
         return default
 
 
-def backfill(batch=None, meta_only=False, void_only=False, contact_only=False):
+def backfill(batch=None, meta_only=False, void_only=False, contact_only=False, amount_only=False):
     es = ESConnection()
     client = es._client()
     if not client:
@@ -75,6 +76,20 @@ def backfill(batch=None, meta_only=False, void_only=False, contact_only=False):
                     "should": [
                         {"term": {"contact_person": ""}},
                         {"bool": {"must_not": [{"exists": {"field": "contact_person"}}]}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+            "sort": ["_doc"],
+        }
+    elif amount_only:
+        # 项目金额回填：amount_wan 缺失或为 0 的全部公告
+        query = {
+            "query": {
+                "bool": {
+                    "should": [
+                        {"bool": {"must_not": [{"exists": {"field": "amount_wan"}}]}},
+                        {"term": {"amount_wan": 0}},
                     ],
                     "minimum_should_match": 1,
                 }
@@ -125,6 +140,13 @@ def backfill(batch=None, meta_only=False, void_only=False, contact_only=False):
                     html = src.get('html', '') or ''
                     p_, ph_, sub_ = _safe_tuple(extract_contact, html, ('', '', ''))
                     doc = {'contact_person': p_, 'contact_phone': ph_, 'contact_subject': sub_}
+                elif amount_only:
+                    # 仅提取成功时写入；失败跳过，避免反复扫描无金额公告
+                    html = src.get('html', '') or ''
+                    unit, val = _safe_tuple(extract_money, _to_text(html), (None, None))
+                    if val is None:
+                        continue
+                    doc = {'amount_wan': val if unit == '万元' else round(val / 10000, 4)}
                 elif void_only:
                     html = src.get('html', '') or ''
                     doc = {'void_reason': _safe(extract_void_reason, html, '')}
@@ -188,5 +210,6 @@ if __name__ == '__main__':
     meta_only = '--meta' in args
     void_only = '--void' in args
     contact_only = '--contact' in args
+    amount_only = '--amount' in args
     batch = next((int(a) for a in args if a.isdigit()), None)
-    backfill(batch, meta_only=meta_only, void_only=void_only, contact_only=contact_only)
+    backfill(batch, meta_only=meta_only, void_only=void_only, contact_only=contact_only, amount_only=amount_only)
